@@ -2,10 +2,13 @@
   "name": "poh-kernel",
   "type": "module",
   "version": "1.0.0",
-  "description": "Pico Kernel",
+  "description": "Pico Proof-of-Honor Kernel",
   "main": "index.js",
   "author": "Tony Ivanov",
   "license": "AGPL-version-3",
+  "scripts": {
+    "build": "esbuild --bundle index.js --outfile=../build/K.js --platform=node --format=esm"
+  },
   "dependencies": {
     "binorg": "../../xeno/",
     "piconuro": "^1.0.1",

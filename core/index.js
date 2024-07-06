@@ -11,7 +11,9 @@ export class Kernel extends SimpleKernel {
     super(db)
     this.store.register(HeroCPU(() => this.pk))
   }
-  get $player () {
+
+  // Prefixing all neurons with 'on_' because godot cannot handle '$' in method-names
+  get on_player () {
     return mute(
       s => this.store.on('players', s),
       (players) => {
@@ -145,21 +147,26 @@ function upgradePlayer (pk, state) {
   return characterSheet
 }
 
-async function testBoot () {
+export async function boot(cb) {
   const DB = new MemoryLevel('rant.lvl', {
     valueEncoding: 'buffer',
     keyEncoding: 'buffer'
   })
-
   const kernel = new Kernel(DB)
   await kernel.boot()
-  console.log('k.$player', get(kernel.$player))
+  window.K = kernel
+  if (typeof cb === 'function') cb(kernel)
+  return kernel
+}
 
+async function testBoot () {
+  const kernel = await boot()
+  console.log('k.on_player', get(kernel.on_player))
   // Create hero
   const block = await kernel.createHero('Bertil VIII', 'A formidable tester without regrets')
   console.log('Hero Created', block)
-  console.log('k.$player', get(kernel.$player))
+  console.log('k.on_player', get(kernel.on_player))
 
   debugger
 }
-testBoot().then(() => console.log('test complete')).catch(console.error)
+// testBoot().then(() => console.log('test complete')).catch(console.error)
