@@ -1,0 +1,21 @@
+{
+  "name": "poh-kernel",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Pico Kernel",
+  "main": "index.js",
+  "author": "Tony Ivanov",
+  "license": "AGPL-version-3",
+  "dependencies": {
+    "binorg": "../../xeno/",
+    "piconuro": "^1.0.1",
+    "picostack": "^1.5.17"
+  },
+  "devDependencies": {
+    "debug": "^4.3.5",
+    "esbuild": "^0.23.0",
+    "memory-level": "^1.0.0",
+    "msgpackr": "^1.10.2",
+    "tape": "^5.8.1"
+  }
+}
