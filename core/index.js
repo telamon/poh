@@ -1,12 +1,17 @@
 import  { Hero }  from 'binorg/player.js'
-import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
 import { SimpleKernel } from 'picostack'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
-import { mute, get } from 'piconuro'
+import { randomNumber } from 'pure-random-number'
+import { mute } from 'piconuro'
 // import { pack, unpack } from 'msgpackr'
+import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
+import { ITEMS } from './items.db.js'
 
 export class Kernel extends SimpleKernel {
+  items = ITEMS
+  _actionBuffer = []
+
   constructor (db) {
     super(db)
     this.store.register(HeroCPU(() => this.pk))
@@ -23,6 +28,23 @@ export class Kernel extends SimpleKernel {
         return upgradePlayer(this.pk, player)
       }
     )
+  }
+
+  async _roll (max, min = 1) {
+    const lastSignature = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
+    let entropy = lastSignature
+    let attempts = 0
+
+    const prng = async nBytes => {
+      console.log('Required bytes', nBytes)
+      if (nBytes > 32) throw new Error('Unsupported entropy')
+      entropy = await globalThis.crypto.subtle.digest('sha-256', entropy)
+      ++attempts
+      return entropy
+    }
+    debugger
+    const n = await randomNumber(min, max, prng)
+    debugger
   }
 
   /**
@@ -76,6 +98,7 @@ function HeroCPU (resolveLocalKey) {
       switch (blockType) {
         case 'spawn_player': {
           state[key] = { // mkHero(data)
+            dead: false,
             spawned: data.date,
             seen: data.date,
             name: data.name,
@@ -83,7 +106,7 @@ function HeroCPU (resolveLocalKey) {
             experience: 0,
             career: [ 1 ],
             turns: 30, // + hero.lvl (raw-level) +3 turns each job skill
-            turnsUsed: 0,
+            exhaustion: 0,
             inventory: [
               { id: 1, qty: 512 }, // gold
               { id: 60, mods: [] }, // sharp stick
@@ -130,19 +153,21 @@ export function isEqualID (a, b) {
 function upgradePlayer (pk, state) {
   const hero = new Hero(null, pk, state.career) // CRYPTOLISK=85*3=256bit, DNA = AUTHOR public key, XP = binary career
   const p = hero.profession
+  const baseStat = 3
   // Dream exports to godot
   const characterSheet = {
     ...state,
     gender: hero.gender ? 'male' : 'female',
-    pwr: hero.pwr,
-    agl: hero.agl,
-    wis: hero.wis,
+    pwr: hero.pwr + baseStat,
+    agl: hero.agl + baseStat,
+    wis: hero.wis + baseStat,
     career: p.path,
     career_str: p.originalPath,
     skills: p.skills,
     profession: p.job || 'pleb',
     lvl: hero.lvl,
     life: hero.life,
+    turns: 30 + hero.lvl,
   }
   return characterSheet
 }
@@ -154,19 +179,7 @@ export async function boot(cb) {
   })
   const kernel = new Kernel(DB)
   await kernel.boot()
-  window.K = kernel
+  globalThis.K = kernel
   if (typeof cb === 'function') cb(kernel)
   return kernel
 }
-
-async function testBoot () {
-  const kernel = await boot()
-  console.log('k.on_player', get(kernel.on_player))
-  // Create hero
-  const block = await kernel.createHero('Bertil VIII', 'A formidable tester without regrets')
-  console.log('Hero Created', block)
-  console.log('k.on_player', get(kernel.on_player))
-
-  debugger
-}
-// testBoot().then(() => console.log('test complete')).catch(console.error)

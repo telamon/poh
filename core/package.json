@@ -7,12 +7,16 @@
   "author": "Tony Ivanov",
   "license": "AGPL-version-3",
   "scripts": {
-    "build": "esbuild --bundle index.js --outfile=../build/K.js --platform=node --format=esm"
+    "build": "esbuild --bundle index.js --outfile=../build/K.js --format=esm",
+    "test": "node test.js",
+    "debug": "node inspect test.js"
   },
   "dependencies": {
     "binorg": "../../xeno/",
+    "browserify": "^17.0.0",
     "piconuro": "^1.0.1",
-    "picostack": "^1.5.17"
+    "picostack": "^1.5.17",
+    "pure-random-number": "^3.2.1"
   },
   "devDependencies": {
     "debug": "^4.3.5",
