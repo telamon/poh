@@ -1,25 +1,26 @@
-import  { Hero }  from 'binorg/player.js'
+import { Hero } from './player.js'
 import { SimpleKernel } from 'picostack'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
-import { randomNumber } from 'pure-random-number'
-import { mute } from 'piconuro'
-// import { pack, unpack } from 'msgpackr'
+import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
+import { mute, get, write, combine, nfo } from 'piconuro'
+import { pack, unpack, Packr } from 'msgpackr'
 import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
-import { ITEMS } from './items.db.js'
+import { ITEMS, AREAS, DUNGEONS } from './items.db.js'
+import { Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift } from './binorg.js'
 
 export class Kernel extends SimpleKernel {
   items = ITEMS
-  _actionBuffer = []
+  _pve = null
+  _pve_hero = write()
 
   constructor (db) {
     super(db)
     this.store.register(HeroCPU(() => this.pk))
   }
 
-  // Prefixing all neurons with 'on_' because godot cannot handle '$' in method-names
-  get on_player () {
-    return mute(
+  get $player () {
+    const $blockState = mute(
       s => this.store.on('players', s),
       (players) => {
         if (!this.pk) return
@@ -28,23 +29,13 @@ export class Kernel extends SimpleKernel {
         return upgradePlayer(this.pk, player)
       }
     )
+    const c = combine($blockState, this._pve_hero[0])
+    return mute(c, ([block, pve]) => pve || block) // prefer virtual PvE-state, remember to clean on commit
   }
 
-  async _roll (max, min = 1) {
-    const lastSignature = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
-    let entropy = lastSignature
-    let attempts = 0
-
-    const prng = async nBytes => {
-      console.log('Required bytes', nBytes)
-      if (nBytes > 32) throw new Error('Unsupported entropy')
-      entropy = await globalThis.crypto.subtle.digest('sha-256', entropy)
-      ++attempts
-      return entropy
-    }
-    debugger
-    const n = await randomNumber(min, max, prng)
-    debugger
+  // godot cannot handle '$' method names nor iterate JS-Arrays
+  get on_player () { // neuro is flexible
+    return mute(this.$player, value => JSON.stringify(value))
   }
 
   /**
@@ -52,8 +43,24 @@ export class Kernel extends SimpleKernel {
    * @param {string} name Name of Hero
    * @param {string} memo Shows on death/tombstone
    */
-  async createHero(name, memo) {
+  async createHero (name, memo) {
     return this.createBlock(null, 'spawn_player', { name, memo })
+  }
+
+  async beginPVE () {
+    const psig = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
+    const cs = get(this.$player)
+    this._pve = new PvESession(await sha256(psig), cs, this._pve_hero[1])
+    return this._pve
+  }
+
+  async commitPVE () {
+    if (!this._pve) throw new Error('No Active Session')
+    const session = this._pve
+    // console.log('Precommit outputs', session._rng.outputs)
+    this._pve = null
+    this._pve_hero[1](null) // Flush out state
+    return await this.createBlock(null, 'pve', { actions: session.stack })
   }
 }
 
@@ -75,7 +82,7 @@ function HeroCPU (resolveLocalKey) {
   return {
     name: 'players',
     initialValue: {},
-    filter({ state, block, parentBlock, AUTHOR }) {
+    filter ({ state, block, parentBlock, AUTHOR }) {
       const key = btok(AUTHOR)
       const data = SimpleKernel.decodeBlock(block.body)
       const { type: blockType } = data
@@ -84,6 +91,12 @@ function HeroCPU (resolveLocalKey) {
           if (!block.isGenesis) return 'Genesis block required'
           if (state[key]) return 'Player already spawned'
           break
+        case 'pve':
+          if (block.isGenesis) return 'Cant Adventure without parent'
+          if (!state[key]) return 'Hero not found'
+          // TODO: are there any mutations that are not caused
+          // by the PvESession machine? If so then validate.
+        break
         default:
           return 'unknown block-type'
       }
@@ -101,19 +114,46 @@ function HeroCPU (resolveLocalKey) {
             dead: false,
             spawned: data.date,
             seen: data.date,
+            adventures: 0,
             name: data.name,
             memo: data.memo,
+            state: 'idle',
+            location: 0,
+            // life: 20, // Max-HP
+            deaths: 0, // life - deaths < 0 == perma death
+            hp: 20,
             experience: 0,
-            career: [ 1 ],
+            career: [1],
             turns: 30, // + hero.lvl (raw-level) +3 turns each job skill
             exhaustion: 0,
             inventory: [
               { id: 1, qty: 512 }, // gold
               { id: 60, mods: [] }, // sharp stick
-              { id: 30, qty: 3 }, // Herb
+              { id: 30, qty: 3 } // Herb
             ]
           }
           console.log('new hero discovered', key, state[key].name)
+        } break
+        case 'pve': {
+          const crap = async () => {
+            const hero = upgradePlayer(AUTHOR, state[key])
+            const sess = new PvESession(await sha256(block.parentSig), hero)
+            const low_level_diff = await sess.replay(data.actions) // is async, picostore is sync, shit.
+            // console.log('Replay outputs', sess._rng.outputs)
+            const dst = state[key]
+            dst.seen = data.date
+            dst.state = 'idle' // Todo, remove HL prop-'state' from LL state.
+            dst.adventures++
+            const props = ['location', 'deaths', 'hp', 'experience', 'career', 'inventory']
+            for (const p of props) dst[p] = sess.hero[p]
+            console.log('Lowlevel updated', dst)
+
+
+            // TODO: monkey trigger update... and rewrite picostore
+            for (const n of this.observers) n(state)
+          }
+          crap()
+            .catch(err => console.error('CRITICAL HeroCPU Failure!', err))
         } break
         default:
           throw new Error('unkown_block_type:' + blockType)
@@ -133,15 +173,6 @@ export function btok (b, length = -1) { // 'base64url' not supported in browser 
 export function ktob (s) {
   if (typeof s !== 'string') throw new Error('Expected string')
   return Buffer.from(s, 'hex')
-}
-
-export function isEqualID (a, b) {
-  return (isDraftID(a) && a === b) ||
-    (
-      Buffer.isBuffer(a) &&
-      Buffer.isBuffer(b) &&
-      a.equals(b)
-    )
 }
 
 /**
@@ -166,13 +197,17 @@ function upgradePlayer (pk, state) {
     skills: p.skills,
     profession: p.job || 'pleb',
     lvl: hero.lvl,
-    life: hero.life,
-    turns: 30 + hero.lvl,
+    life: 3 + Math.floor((hero.lvl / 3)) * 2, // +2 lives every 3 levels
+    turns: 30 + hero.lvl
   }
-  return characterSheet
+  characterSheet.maxhp = 20 + characterSheet.pwr
+  return decorateBattleStats(characterSheet, {
+    atk: 1, // TODO: weapon
+    def: 1 // TODO: armour
+  })
 }
 
-export async function boot(cb) {
+export async function boot (cb) {
   const DB = new MemoryLevel('rant.lvl', {
     valueEncoding: 'buffer',
     keyEncoding: 'buffer'
@@ -183,3 +218,334 @@ export async function boot(cb) {
   if (typeof cb === 'function') cb(kernel)
   return kernel
 }
+
+async function sha256 (buffer) {
+  return toU8(await globalThis.crypto.subtle.digest('sha-256', buffer))
+}
+/* BUFFER UTILS: TODO import from pifofeedv8 */
+/** assert Uint8Array[length]
+  * @type {(a: Uint8Array, l?: number) => Uint8Array} */
+export const au8 = (a, l) => {
+  if (!(a instanceof Uint8Array) || (typeof l === 'number' && l > 0 && a.length !== l)) throw new Error('Uint8Array expected')
+  else return a
+}
+// export const toHex = (buf, limit = 0) => bytesToHex(limit ? buf.slice(0, limit) : buf)
+// export const fromHex = hexToBytes
+const utf8Encoder = new globalThis.TextEncoder()
+const utf8Decoder = new globalThis.TextDecoder()
+export const s2b = s => utf8Encoder.encode(s)
+export const b2s = b => utf8Decoder.decode(b)
+export const cmp = (a, b, i = 0) => {
+  if (au8(a).length !== au8(b).length) return false
+  while (a[i] === b[i++]) if (i === a.length) return true
+  return false
+}
+export const cpy = (to, from, offset = 0) => { to.set(from, offset); return to }
+/** @returns {Uint8Array} */
+export function toU8 (o) {
+  if (o instanceof Uint8Array) return o
+  if (o instanceof ArrayBuffer) return new Uint8Array(o)
+  // node:Buffer to Uint8Array
+  if (!(o instanceof Uint8Array) && o?.buffer) return new Uint8Array(o.buffer, o.byteOffset, o.byteLength)
+  // if (typeof o === 'string' && /^[a-f0-9]+$/i.test(o)) return fromHex(o)
+  // if (typeof o === 'string') return s2b(o) // experimental / might regret
+  throw new Error('Uint8Array coercion failed')
+}
+/* End of bufer utils */
+
+export class PRNG {
+  static MAX_ROUNDS = 32
+  _base = null
+  seed = null
+  rounds = 0
+  offset = 0
+  inputs = []
+  outputs = []
+
+  constructor (seed) {
+    this._base = this.seed = toU8(seed)
+  }
+  get consumed () { return this.rounds * 32 + this.offset }
+  async replay (inputs) {
+    if (this.rounds !== 0 && this.offset !== 0 && cmp(this._base, this.seed)) {
+      throw new Error('replay() requires initial state')
+    }
+    for (const input of inputs) {
+      const op = input[0]
+      switch (op) {
+        case 'roll':
+          await this.roll(...input.slice(1))
+          break
+        case 'bytes':
+          await this.randomBytes(...input.slice(1))
+          break
+      }
+    }
+  }
+
+  async restore (state = {}) {
+    if (this.rounds !== 0 && this.offset !== 0 && cmp(this._base, this.seed)) {
+      throw new Error('restore() requires initial state')
+    }
+    const { rounds, offset } = state
+    for (let i = 0; i < rounds; i++) await this._next()
+    if (state?.offset) this.offset = offset
+  }
+
+  async _next () {
+    this.seed = await sha256(this.seed)
+    if (++this.rounds > PRNG.MAX_ROUNDS) throw new Error('Commit to Refresh Entropy')
+    this.offset = 0
+  }
+
+  async roll (max, min = 1) {
+    const needed = bytesNeeded(min, max)
+    this.inputs.push(['roll', max, min, this.rounds, this.offset])
+    let n = -1
+    do {
+      // Re-roll seed
+      if (this.seed.length < this.offset + needed) await this._next()
+      // Scan forward through seed until first qualified number is found
+      n = randomSeedNumber(this.seed.subarray(this.offset), min, max)
+      this.offset += needed
+    } while (n === -1)
+    this.outputs.push(['roll', n, this.rounds, this.offset])
+    return n
+  }
+
+  /**
+   * @param {Array<any>} options
+   * @param {Array<number> weights Positive integer weights only
+   */
+  async pickOne (options, weights) {
+    if (options.length != weights.length) throw new Error(`Lengths mismatch: options[${options.length}] != weights[${weights.length}]`)
+    const total = weights.reduce((sum, w) => w + sum, 0)
+    const n = await this.roll(total)
+    let d = 0
+    for (let i = 0; i < options.length; i++) {
+      d += weights[i]
+      if (d >= n) return options[i]
+    }
+    throw new Error('unreachable')
+  }
+
+  async randomBytes (n) {
+    this.inputs.push(['bytes', n, this.rounds, this.offset])
+    const b = new Uint8Array(n)
+    let dstOffset = 0
+    while (dstOffset < n) {
+      const available = this.seed.length - this.offset
+      if (!available) await this._next()
+      const taken = Math.min(available, n - dstOffset)
+      const src = this.seed.subarray(this.offset, this.offset + taken)
+      b.set(src, dstOffset)
+      this.offset += taken
+      dstOffset += taken
+    }
+    this.outputs.push(['bytes', n, b, this.rounds, this.offset])
+    return b
+  }
+}
+
+class PvESession {
+  started = Date.now()
+  _rng = null
+  hero = null
+  _notifyChange = null
+  stack = []
+  #battle = null
+  get location () { return this.hero.location }
+  get state () { return this.hero.state }
+  get area () { return AREAS[this.location] }
+
+  constructor (seed, hero, onChange = () => {}) {
+    this.hero = clone(hero)
+    this._notifyChange = () => onChange({ ...this.hero })
+    this._rng = new PRNG(seed)
+    this.hero.state = 'adventure'
+    this._notifyChange()
+  }
+
+  _push(action) {
+    this.stack.push(action)
+  }
+
+  async travelTo (areaId) {
+    const connected = this.area.exits.some(exit => exit === areaId)
+    if (!connected) throw new Error(`Cannot travel to ${areaId} from ${this.area.id}`)
+    if (!(areaId in AREAS)) throw new Error(`Unknown AREAD#${areaId}`)
+    this._push({ type: 'travel', areaId, from: this.location })
+    this.hero.location = areaId
+    this._notifyChange()
+  }
+
+  async explore (dungeonId) {
+    const connected = this.area.dungeons.some(d => d === dungeonId)
+    if (!connected) throw new Error(`Dungeon ${dungeonId} does not exist in ${this.area.id}`)
+    const dungeon = DUNGEONS[dungeonId]
+    if (!dungeon) throw new Error(`Unknown Dungeon ${dungeonId}`)
+    this._push({ type: 'explore', dungeonId })
+    const { encounters } = dungeon
+    // Roll Encounter
+    const event = await this._rng.pickOne(encounters, encounters.map(e => e.chance))
+    if (event.type === 'monster') {
+      // const org = spawnMonster(event.size, event.baseStats)
+      const nbits = TWOBYTER * 3 + 1
+      const dna = new Uint8Array(roundByte(nbits))
+      insertLifeMarker(dna, nbits)
+      const spawn = new Binorg(TWOBYTER, dna)
+      // Random level-up
+      const lvl = this.hero.lvl <= event.lvl.min
+        ? event.lvl.min // no point rolling, scale down, save entropy
+        : await this._rng.roll(event.lvl.max, Math.min(this.hero.lvl, event.level.min))
+      const randStats = await this._rng.randomBytes(roundByte(lvl))
+      for (let i = 0; i < lvl; i++) spawn.progress(downShift(randStats)) // downshift is safe with u8's , upshift is not.
+      this.#battle = {
+        event,
+        spawn: decorateBattleStats({
+          type: event.type,
+          name: event.name,
+          lvl,
+          hp: event.hp + lvl,
+          pwr: event.baseStats[0] + spawn.pwr,
+          agl: event.baseStats[1] + spawn.agl,
+          wis: event.baseStats[2] + spawn.wis
+        })
+      }
+      this.hero.state = 'battle'
+      this._notifyChange()
+      return this.#battle.spawn
+    } else {
+      throw new Error('unreachable')
+    }
+  }
+
+  /**
+   * @param {string} action attack|run|use|SKILLNAME
+   * @param {any} pass item id when action = 'use'
+   */
+  async doBattle (action, arg = null) {
+    if (this.state !== 'battle') throw new Error('NotFighting')
+    this._push({ type: 'battle', action, arg })
+    const hero = this.hero
+    const spawn = this.#battle.spawn
+    const hits = []
+    // TODO: rng.getRandomBytes(1) do initative roll for both splitting 8 bits into 4 (each rolls d16)
+    if (hero.agl > spawn.agl) {
+      const r1 = await attack(hero, spawn, this._rng)
+      hits.push(r1)
+      if (r1.type !== 'kill') hits.push(await attack(spawn, hero, this._rng))
+    } else {
+      const r1 = await attack(spawn, hero, this._rng)
+      hits.push(r1)
+      if (r1.type !== 'kill') hits.push(await attack(hero, spawn, this._rng))
+    }
+    let type = 'exchange'
+    const lastHit = hits[hits.length - 1]
+    if (lastHit.type === 'kill') {
+      type = lastHit.attacker === hero.name
+        ? 'victory'
+        : 'defeat'
+    }
+    const out = { type, hits }
+    if (type === 'victory') {
+      const { loot, xp } = this.#battle.event
+      out.xp = xp + spawn.lvl
+      hero.experience += out.xp
+      this.addInventory({ id: 1, qty: 99 }, true)
+      const item = await this._rng.pickOne(loot.map(clone), loot.map(i => i.chance))
+      out.loot = [item]
+      this.addInventory(out.loot, true)
+      hero.state = 'adventure'
+    } else if (type === 'defeat') {
+      hero.hp = 10
+      hero.deaths++
+      hero.location = 0
+      hero.state = 'adventure'
+    }
+    this._notifyChange()
+    return out
+  }
+
+  addInventory (items, noNotify=false) {
+    if (!Array.isArray(items)) items = [items]
+    const inventory = this.hero.inventory
+    for (const item of items) {
+      const spec = ITEMS[item.id]
+      // console.log(item)
+      if (!spec) throw new Error('CannotStashUnknownItem' + item.id)
+      // Ensure prop qty exists on stackable
+      if (spec.stacks && !Number.isSafeInteger(item.qty)) item.qty = 1
+      // Try increasing quanitty of stackable items
+      if (spec.stacks) {
+        const existing = inventory.find(i => i.id === item.id)
+        if (existing) {
+          existing.qty += item.qty
+          continue
+        }
+      }
+      // Else just append it
+      inventory.push(item)
+    }
+    if (!noNotify) this._notifyChange()
+  }
+
+  async replay (actions) {
+    for (const action of actions) {
+      switch (action.type) {
+        case 'travel':
+          await this.travelTo(action.areaId)
+          break
+        case 'explore':
+          await this.explore(action.dungeonId)
+          break
+        case 'battle':
+          await this.doBattle(action.action, action.arg)
+          break
+        default:
+          throw new Error('Unknown PvEAction' + action.type)
+      }
+    }
+  }
+}
+/** (The PvEbattle system)
+  * warn: it mutates the defender (b)  */
+async function attack (a, b, rng) {
+  const hitRoll = await rng.roll(20)
+  const treshold = 10 + b.agl - a.agl
+
+  // Rolling below threshold is a miss, unless critical
+  if (treshold > hitRoll && hitRoll !== 20) {
+    return { type: 'miss', attacker: a.name }
+  }
+
+  let type = 'normal' // It's a hit.
+
+  let { atk } = a // Base atk stat of attacker
+
+  if (hitRoll === 20) {
+    type = 'crit'
+    atk *= 1.5 // bonus damage
+  } else if (hitRoll >= 17) {
+    type = 'good'
+    atk *= 1.25 // bonus damage
+  }
+  // console.log('def', b.def, ' atk', atk, ' dmg:', atk - b.def)
+  const damage = Math.ceil(Math.max(atk - b.def, 0))
+
+  b.hp -= damage // Apply damage to HP
+  if (b.hp < 1) type = 'kill'
+
+  return { type, damage, attacker: a.name }
+}
+
+function decorateBattleStats (o = {}, mod) {
+  const { pwr, agl, wis } = o
+  return {
+    ...o,
+    atk: pwr + Math.floor(agl * 0.6) + (mod?.atk || 0),
+    def: agl + Math.floor(wis * 0.5) + (mod?.def || 0)
+  }
+}
+
+function clone (o) { return unpack(pack(o)) }

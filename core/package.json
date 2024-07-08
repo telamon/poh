@@ -9,7 +9,8 @@
   "scripts": {
     "build": "esbuild --bundle index.js --outfile=../build/K.js --format=esm",
     "test": "node test.js",
-    "debug": "node inspect test.js"
+    "debug": "node inspect test.js",
+    "lint": "standard --fix"
   },
   "dependencies": {
     "binorg": "../../xeno/",
@@ -23,6 +24,7 @@
     "esbuild": "^0.23.0",
     "memory-level": "^1.0.0",
     "msgpackr": "^1.10.2",
+    "standard": "^17.1.0",
     "tape": "^5.8.1"
   }
 }
