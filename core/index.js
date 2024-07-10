@@ -4,13 +4,13 @@ import { SimpleKernel } from 'picostack'
 import { MemoryLevel } from 'memory-level'
 import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
 import { mute, get, write, combine, nfo } from 'piconuro'
-import { pack, unpack, Packr } from 'msgpackr'
-import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
-import { ITEMS, AREAS, DUNGEONS } from './items.db.js'
+import { pack, unpack } from 'msgpackr'
+// import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
+import { ITEMS, I, AREAS, DUNGEONS } from './db.js'
 import { Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift } from './binorg.js'
 
 export class Kernel extends SimpleKernel {
-  items = ITEMS
+  /** @type {PvESession} */
   _pve = null
   _pve_hero = write()
 
@@ -127,8 +127,7 @@ function HeroCPU (resolveLocalKey) {
             turns: 30, // + hero.lvl (raw-level) +3 turns each job skill
             exhaustion: 0,
             inventory: [
-              { id: 1, qty: 512 }, // gold
-              { id: 60, mods: [] }, // sharp stick
+              { id: 1, qty: 100 }, // gold
               { id: 30, qty: 3 } // Herb
             ]
           }
@@ -146,8 +145,7 @@ function HeroCPU (resolveLocalKey) {
             dst.adventures++
             const props = ['location', 'deaths', 'hp', 'experience', 'career', 'inventory']
             for (const p of props) dst[p] = sess.hero[p]
-            console.log('Lowlevel updated', dst)
-
+            // console.log('Lowlevel updated', dst)
 
             // TODO: monkey trigger update... and rewrite picostore
             for (const n of this.observers) n(state)
@@ -182,7 +180,10 @@ export function ktob (s) {
  * @param {any} Lowlevel state
  */
 function upgradePlayer (pk, state) {
-  const hero = new Hero(null, pk, state.career) // CRYPTOLISK=85*3=256bit, DNA = AUTHOR public key, XP = binary career
+
+  const hero = new Hero(null, pk) // CRYPTOLISK=85*3=256bit, DNA = AUTHOR public key, XP = binary career
+  // TODO: level up
+  // state.career
   const p = hero.profession
   const baseStat = 3
   // Dream exports to godot
@@ -229,8 +230,8 @@ export const au8 = (a, l) => {
   if (!(a instanceof Uint8Array) || (typeof l === 'number' && l > 0 && a.length !== l)) throw new Error('Uint8Array expected')
   else return a
 }
-// export const toHex = (buf, limit = 0) => bytesToHex(limit ? buf.slice(0, limit) : buf)
-// export const fromHex = hexToBytes
+export const toHex = (buf, limit = 0) => Buffer.from(limit ? buf.slice(0, limit) : buf).toString('hex')
+export const fromHex = b => Buffer.from(b, 'hex') // hexToBytes
 const utf8Encoder = new globalThis.TextEncoder()
 const utf8Decoder = new globalThis.TextDecoder()
 export const s2b = s => utf8Encoder.encode(s)
@@ -314,11 +315,12 @@ export class PRNG {
   }
 
   /**
-   * @param {Array<any>} options
-   * @param {Array<number> weights Positive integer weights only
+   * @param {any[]} options
+   * @param {number[]} weights Positive integer weights only
+   * @returns {any} one random option
    */
   async pickOne (options, weights) {
-    if (options.length != weights.length) throw new Error(`Lengths mismatch: options[${options.length}] != weights[${weights.length}]`)
+    if (options.length !== weights.length) throw new Error(`Lengths mismatch: options[${options.length}] != weights[${weights.length}]`)
     const total = weights.reduce((sum, w) => w + sum, 0)
     const n = await this.roll(total)
     let d = 0
@@ -353,10 +355,18 @@ class PvESession {
   hero = null
   _notifyChange = null
   stack = []
+  #counter_items_spawned = 0
   #battle = null
+
   get location () { return this.hero.location }
   get state () { return this.hero.state }
   get area () { return AREAS[this.location] }
+  /** @type {Array} */
+  get inventory () { return this.hero.inventory }
+  /** @type {number} */
+  get balance () { // gold
+    return this.inventory.find(i => i.id === I.gold)?.qty || 0
+  }
 
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
@@ -366,14 +376,14 @@ class PvESession {
     this._notifyChange()
   }
 
-  _push(action) {
+  _push (action) {
     this.stack.push(action)
   }
 
   async travelTo (areaId) {
     const connected = this.area.exits.some(exit => exit === areaId)
     if (!connected) throw new Error(`Cannot travel to ${areaId} from ${this.area.id}`)
-    if (!(areaId in AREAS)) throw new Error(`Unknown AREAD#${areaId}`)
+    if (!(areaId in AREAS)) throw new Error(`Unknown Area #${areaId}`)
     this._push({ type: 'travel', areaId, from: this.location })
     this.hero.location = areaId
     this._notifyChange()
@@ -452,9 +462,13 @@ class PvESession {
       const { loot, xp } = this.#battle.event
       out.xp = xp + spawn.lvl
       hero.experience += out.xp
-      this.addInventory({ id: 1, qty: 99 }, true)
+      // this.addInventory({ id: 1, qty: 99 }, true) // hard gold?
       const item = await this._rng.pickOne(loot.map(clone), loot.map(i => i.chance))
-      out.loot = [item]
+      const spec = this._getItemSpec(item)
+
+      if (spec.stacks) out.loot = [{ id: item.id, qty: item.qty }]
+      else out.loot = [await this._spawnItem(item, true)]
+
       this.addInventory(out.loot, true)
       hero.state = 'adventure'
     } else if (type === 'defeat') {
@@ -467,9 +481,34 @@ class PvESession {
     return out
   }
 
-  addInventory (items, noNotify=false) {
+  /**
+   * @typedef {{ id: number, qty: number }} Item
+   * @typedef {Item & { uid: string, equipped?: boolean, qty: 1 }} UniqueItem
+   * @typedef {number} ItemID
+   * @typedef {string} ItemUID
+   * @typedef {ItemID|ItemUID|Item|UniqueItem} LocalItem
+   *
+   * @typedef {{
+   *   id: number,
+   *   name: string,
+   *   description: string,
+   *   vendorPrice: number,
+   *   stacks: boolean,
+   *   sells: boolean,
+   *   discards: boolean,
+   *   usable: boolean,
+   *   combatUsable: boolean,
+   *   equip: number
+   *   stats?: { pwr: number, dex: number, wis: number }
+   * }} ItemSpec
+   */
+
+  /**
+   * @param {Item|Item[]} items
+   */
+  addInventory (items, noNotify = false) {
     if (!Array.isArray(items)) items = [items]
-    const inventory = this.hero.inventory
+    const inventory = this.inventory
     for (const item of items) {
       const spec = ITEMS[item.id]
       // console.log(item)
@@ -490,6 +529,122 @@ class PvESession {
     if (!noNotify) this._notifyChange()
   }
 
+  /**
+   * Removes an item either by
+   *  - id+qty
+   *  - just id(stackable) assuming qty: 1
+   *  - or string:uid(non-stackable)
+   *
+   * @param {LocalItem|LocalItem[]} items
+   * @param {boolean} noNotify Don't notify frontend of change (yet)
+   */
+  removeInventory (items, noNotify = false) {
+    if (!Array.isArray(items)) items = [items]
+    const inventory = this.inventory
+    for (const item of items) {
+      const spec = this._getItemSpec(item)
+      const id = spec.id
+
+      if (spec.stacks) {
+        const existing = inventory.find(i => i.id === id)
+        const qty = item.qty || 1
+        if (existing.qty < qty) throw new Error('InsufficientQuantity')
+        existing.qty -= qty
+        if (existing.qty === 0) inventory.splice(inventory.indexOf(existing))
+      } else {
+        const uid = typeof item === 'string' ? item : item.uid
+        if (typeof uid === 'undefined') throw new Error('ItemUID Not found')
+        const idx = inventory.findIndex(i => uid === i.uid)
+        if (!~idx) throw new Error(`Item uid:${uid} not found`)
+        inventory.splice(idx, 1)
+      }
+    }
+    if (!noNotify) this._notifyChange()
+  }
+
+  async interact (npcId, action, ...args) {
+    const npc = this.area.npcs[npcId]
+    if (!npc) throw new Error(`Unknown NPC[${npcId}]`)
+    switch (action) {
+      case 'buy': {
+        let [offerId, qty] = args // TODO: use itemIdx?
+        qty ||= 1
+
+        if (!npc.sells) throw new Error(`NPC[${npcId}] does not sell anything`)
+
+        const offered = npc.sells.find(i => Number.isInteger(i) ? i === offerId : i.id === offerId)
+        const itemId = Number.isInteger(offered) ? offered : offered.id
+        if (!offered || !itemId) throw new Error(`NPC[${npcId}] does not sell Item[${offerId}]`)
+
+        const spec = this._getItemSpec(itemId)
+        const price = Math.ceil(spec.vendorPrice * 1.25)
+        if (price * qty > this.balance) throw new Error('Insufficient Gold')
+
+        this.removeInventory({ id: I.gold, qty: price }, true)
+        const addItem = spec.stacks
+          ? { id: itemId, qty }
+          : await this._spawnItem(offered)
+        this.addInventory(addItem)
+      } break
+
+      case 'sell': {
+        let [target, qty] = args
+        const spec = this._getItemSpec(target)
+        const price = Math.floor(spec.vendorPrice * 0.75)
+        if (spec.stacks) {
+          qty ||= 1
+          if (Number.isInteger(target)) target = { id: target, qty }
+          if (typeof target === 'string') target =  { uid: target, qty }
+        }
+        this.removeInventory(target)
+        this.addInventory({ id: I.gold, qty: price })
+      } break
+
+      default:
+        throw new Error(`Unknown NPC-interaction "${action}"`)
+    }
+    this._push({ type: 'interact', npc: npcId, action, args })
+  }
+
+  /**
+   * Looks up spec by id, Item.id
+   * or uid if item is in inventory.
+   * @param {LocalItem} target
+   * @return {ItemSpec}
+   */
+  _getItemSpec (target) {
+    const id = typeof target === 'string'
+      ? this.inventory.find(i => i.uid === target)?.id
+      : Number.isInteger(target) ? target : target.id
+    if (typeof id === 'undefined') throw new Error(`Item Not found ${target}`)
+    if (!(id in ITEMS)) throw new Error(`ItemSpec Not Found ${id}`)
+    return ITEMS[id]
+  }
+
+  async _spawnItem (item, rollStats = false) {
+    const spec = ITEMS[Number.isInteger(item) ? item : item.id]
+    const instance = Number.isInteger(item) ? { id: item } : clone(item)
+    instance.qty = 1
+    delete instance.chance // Silly workaround
+
+    if (item.stats) instance.stats = clone(item.stats)
+    else if (spec.stats) instance.stats = clone(spec.stats)
+
+    if (instance.stats && rollStats) {
+      // instance.todoRandom = true
+      // TODO: roll stats from spec? (only on loot drops, not on vendor buy)
+    }
+
+    // TODO: use psig not rng/base
+    const seed = this._rng._base.slice(0, 8)
+    const ctr = this.#counter_items_spawned++
+    seed[7] = ctr & 0xff
+    seed[6] = (ctr >>> 8) & 0xff
+    instance.uid = toHex(seed)
+    // TODO: decide wether or not we want wish to have schrödingers unindentified axe
+    return instance
+  }
+
   async replay (actions) {
     for (const action of actions) {
       switch (action.type) {
@@ -502,8 +657,11 @@ class PvESession {
         case 'battle':
           await this.doBattle(action.action, action.arg)
           break
+        case 'interact':
+          await this.interact(action.npc, action.action, ...action.args)
+          break
         default:
-          throw new Error('Unknown PvEAction' + action.type)
+          throw new Error('Unknown PvEAction: ' + action.type)
       }
     }
   }
@@ -548,4 +706,5 @@ function decorateBattleStats (o = {}, mod) {
   }
 }
 
-function clone (o) { return unpack(pack(o)) }
+export function clone (o) { return unpack(pack(o)) }
+
