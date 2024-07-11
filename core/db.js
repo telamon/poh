@@ -47,7 +47,7 @@ export const ITEMS = {}
 export const I = {} // ITEM NAMES
 
 // FLAGS
-const [STACK, SELL, DISCARD, USE, USE_COMBAT] = bitEnum(6)
+const [STACK, SELL, DISCARD, USE, USE_COMBAT] = bitEnum(5)
 const NONE = 0
 const [LEFT, RIGHT, HEAD, BODY, FEET] = bitEnum(5)
 const TWOHAND = LEFT | RIGHT
@@ -122,14 +122,35 @@ AREAS[A.town] = {
   exits: [A.crossroads, A.citadel],
   npcs: [
     { // TODO: considering moving out into own NPCS section
+      id: 0,
       name: 'General Store',
-      sells: [I.ration, I.herb, I.rusty_knife, I.white_book]
+      sells: [
+        I.ration,
+        I.herb,
+        I.rusty_knife,
+        I.white_book
+      ]
     },
     {
+      id: 1,
       name: 'Blacksmith',
-      sells: [I.rusty_knife, I.dagger, I.small_buckler, I.short_sword, I.mace]
+      sells: [
+        I.rusty_knife,
+        I.dagger,
+        I.small_buckler,
+        I.short_sword,
+        I.mace
+      ]
     }
   ]
+}
+
+AREAS[A.forest] = {
+  id: A.forest,
+  type: 'map',
+  name: 'Crossroads',
+  exits: [A.crossroads, A.swamp], // spawnpoint, town, forest, mountain
+  dungeons: [1]
 }
 
 /// --------------------------------------

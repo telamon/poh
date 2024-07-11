@@ -3,11 +3,12 @@ import { SimpleKernel } from 'picostack'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
 import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
-import { mute, get, write, combine, nfo } from 'piconuro'
+import { mute, get, write, combine } from 'piconuro'
 import { pack, unpack } from 'msgpackr'
 // import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
 import { ITEMS, I, AREAS, DUNGEONS } from './db.js'
 import { Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift } from './binorg.js'
+export * as DB from './db.js'
 
 export class Kernel extends SimpleKernel {
   /** @type {PvESession} */
@@ -18,6 +19,8 @@ export class Kernel extends SimpleKernel {
     super(db)
     this.store.register(HeroCPU(() => this.pk))
   }
+
+  get session () { return this._pve }
 
   get $player () {
     const $blockState = mute(
@@ -207,8 +210,12 @@ function upgradePlayer (pk, state) {
     def: 1 // TODO: armour
   })
 }
-
+/**
+ * TODO: move function to bootloader.js
+ * avoid setting globalThis.K in production builds
+ */
 export async function boot (cb) {
+  console.log('boot() called, allocating memory')
   const DB = new MemoryLevel('rant.lvl', {
     valueEncoding: 'buffer',
     keyEncoding: 'buffer'
@@ -565,6 +572,8 @@ class PvESession {
   async interact (npcId, action, ...args) {
     const npc = this.area.npcs[npcId]
     if (!npc) throw new Error(`Unknown NPC[${npcId}]`)
+    let response = null
+
     switch (action) {
       case 'buy': {
         let [offerId, qty] = args // TODO: use itemIdx?
@@ -594,7 +603,7 @@ class PvESession {
         if (spec.stacks) {
           qty ||= 1
           if (Number.isInteger(target)) target = { id: target, qty }
-          if (typeof target === 'string') target =  { uid: target, qty }
+          if (typeof target === 'string') target = { uid: target, qty }
         }
         this.removeInventory(target)
         this.addInventory({ id: I.gold, qty: price })
@@ -604,6 +613,7 @@ class PvESession {
         throw new Error(`Unknown NPC-interaction "${action}"`)
     }
     this._push({ type: 'interact', npc: npcId, action, args })
+    return response
   }
 
   /**
@@ -707,4 +717,3 @@ function decorateBattleStats (o = {}, mod) {
 }
 
 export function clone (o) { return unpack(pack(o)) }
-
