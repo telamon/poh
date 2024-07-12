@@ -53,16 +53,16 @@ const [LEFT, RIGHT, HEAD, BODY, FEET] = bitEnum(5)
 const TWOHAND = LEFT | RIGHT
 
 defineItem(1, 'Gold', 1, STACK, 'The stuff that gleams')
-defineItem(30, 'Herb', 100, STACK | SELL | DISCARD | USE, 'A natural anti-septic')
-defineItem(31, 'Ration', 2, STACK | SELL | DISCARD | USE, 'Restores health')
+defineItem(30, 'Herb', 100, STACK | SELL | DISCARD | USE, 'A natural anti-septic with relaxing properties')
+defineItem(31, 'Ration', 2, STACK | SELL | DISCARD | USE, 'Restores health, when out of combat')
 defineItem(32, 'Fish', 2, STACK | SELL | DISCARD | USE, 'Freshly caught!')
-defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and discovered that it\'s quite sharp.', {
+defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
 })
 defineItem(61, 'Rusty Knife', 10, SELL | DISCARD, 'Will cut through bread if force is applied', {
   equip: RIGHT, pwr: 3, agl: 3
 })
-defineItem(62, 'Dagger', 20, SELL | DISCARD, 'Standard stab equipment', {
+defineItem(62, 'Dagger', 20, SELL | DISCARD, 'Standard stabbing equipment', {
   equip: RIGHT, pwr: 4, agl: 5
 })
 defineItem(63, 'Short Sword', 80, SELL | DISCARD, 'Swing it', {
@@ -71,13 +71,13 @@ defineItem(63, 'Short Sword', 80, SELL | DISCARD, 'Swing it', {
 defineItem(64, 'Flint Spear', 120, SELL | DISCARD, 'Ancient tool, great for hunting', {
   equip: TWOHAND, pwr: 9, agl: 4
 })
-defineItem(65, 'Mace', 85, SELL | DISCARD, 'Seeing the damage it causes makes you smarter', {
+defineItem(65, 'Mace', 85, SELL | DISCARD, 'Seeing the damage makes you smarter', {
   equip: RIGHT, pwr: 7, agl: -1, wis: 1
 })
 defineItem(66, 'White Book', 90, SELL | DISCARD, 'Full of tasty cooking recipes, but your opponent doesn\'t know that.', {
   equip: LEFT, pwr: 0, agl: 2, wis: 5
 })
-defineItem(67, 'Small buckler', 78, SELL | DISCARD, 'Full of tasty cooking recipes, but your opponent doesn\'t know that.', {
+defineItem(67, 'Small buckler', 78, SELL | DISCARD, 'Will deflect an arrow if held at an approriate angle', {
   equip: LEFT, pwr: 0, agl: 2, wis: 0, def: 5
 })
 

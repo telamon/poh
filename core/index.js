@@ -114,10 +114,10 @@ function HeroCPU (resolveLocalKey) {
       switch (blockType) {
         case 'spawn_player': {
           state[key] = { // mkHero(data)
-            dead: false,
+            dead: false, // TODO: probably not needed
             spawned: data.date,
             seen: data.date,
-            adventures: 0,
+            adventures: 0, // n-sessions completed
             name: data.name,
             memo: data.memo,
             state: 'idle',
@@ -125,13 +125,11 @@ function HeroCPU (resolveLocalKey) {
             // life: 20, // Max-HP
             deaths: 0, // life - deaths < 0 == perma death
             hp: 20,
-            experience: 0,
+            experience: 0, // This should be tracked
             career: [1],
-            turns: 30, // + hero.lvl (raw-level) +3 turns each job skill
-            exhaustion: 0,
             inventory: [
-              { id: 1, qty: 100 }, // gold
-              { id: 30, qty: 3 } // Herb
+              { id: I.gold, qty: 100 }, // gold
+              { id: I.herb, qty: 3 } // Herb
             ]
           }
           console.log('new hero discovered', key, state[key].name)
@@ -202,9 +200,14 @@ function upgradePlayer (pk, state) {
     profession: p.job || 'pleb',
     lvl: hero.lvl,
     life: 3 + Math.floor((hero.lvl / 3)) * 2, // +2 lives every 3 levels
-    turns: 30 + hero.lvl
+    turns: 30 + hero.lvl,
+    exhaustion: 0
   }
-  characterSheet.maxhp = 20 + characterSheet.pwr
+  // Calculate max-hp
+  characterSheet.maxhp = 20
+    + characterSheet.pwr
+    + Math.floor((hero.lvl / 3)) * 5
+
   return decorateBattleStats(characterSheet, {
     atk: 1, // TODO: weapon
     def: 1 // TODO: armour
@@ -354,6 +357,10 @@ export class PRNG {
     this.outputs.push(['bytes', n, b, this.rounds, this.offset])
     return b
   }
+
+  get spent () {
+    return this.offset + this.rounds * 32
+  }
 }
 
 class PvESession {
@@ -377,7 +384,10 @@ class PvESession {
 
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
-    this._notifyChange = () => onChange({ ...this.hero })
+    this._notifyChange = () => onChange({
+      ...this.hero,
+      exhaustion: this._rng.spent
+    })
     this._rng = new PRNG(seed)
     this.hero.state = 'adventure'
     this._notifyChange()
