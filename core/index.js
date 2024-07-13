@@ -385,7 +385,7 @@ class PvESession {
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
     this._notifyChange = () => onChange({
-      ...this.hero,
+      ...clone(this.hero),
       exhaustion: this._rng.spent
     })
     this._rng = new PRNG(seed)
@@ -474,7 +474,7 @@ class PvESession {
         ? 'victory'
         : 'defeat'
     }
-    const out = { type, hits }
+    const out = { type, hits, spawn }
     if (type === 'victory') {
       const { loot, xp } = this.#battle.event
       out.xp = xp + spawn.lvl
@@ -615,7 +615,7 @@ class PvESession {
           if (Number.isInteger(target)) target = { id: target, qty }
           if (typeof target === 'string') target = { uid: target, qty }
         }
-        this.removeInventory(target)
+        this.removeInventory(target, true)
         this.addInventory({ id: I.gold, qty: price })
       } break
 
