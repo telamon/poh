@@ -46,9 +46,16 @@ test.only('Express gameplay as functions', async t => {
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
 
+  console.log('Stats before', get(kernel.$player).stats)
   t.notOk(session.equipment.right, 'Nothing equipped')
   await session.useItem(weapon.uid)
   t.equal(session.equipment.right.uid, weapon.uid, 'Knife equipped')
+  console.log('Stats after', get(kernel.$player).stats)
+
+  await session.useItem(weapon.uid) // unequip
+  t.notOk(session.equipment.right, 'Item unequipped')
+  await session.useItem(weapon.uid) // unequip
+  t.equal(session.equipment.right.uid, weapon.uid, 'Knife reequipped')
 
   await session.travelTo(1) // Goto crossroads
   console.log(session.area)

@@ -218,10 +218,8 @@ function upgradePlayer (pk, state) {
     characterSheet.pwr +
     Math.floor((hero.lvl / 3)) * 5
 
-  return decorateBattleStats(characterSheet, {
-    atk: 1, // TODO: weapon
-    def: 1 // TODO: armour
-  })
+  characterSheet.stats = computeStats(characterSheet)
+  return characterSheet
 }
 /**
  * TODO: move function to bootloader.js
@@ -397,11 +395,14 @@ class PvESession {
   /** @type {EquippedView} */
   get equipment () { return viewEquipped(this.inventory) }
 
+  get stats () { return computeStats(this.hero) }
+
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
     this._notifyChange = () => onChange({
       ...clone(this.hero),
-      exhaustion: this._rng.spent
+      exhaustion: this._rng.spent,
+      stats: computeStats(this.hero)
     })
     this._rng = new PRNG(seed)
     this.hero.state = 'adventure'
@@ -444,7 +445,7 @@ class PvESession {
       for (let i = 0; i < lvl; i++) spawn.progress(downShift(randStats)) // downshift is safe with u8's , upshift is not.
       this.#battle = {
         event,
-        spawn: decorateBattleStats({
+        spawn: {
           type: event.type,
           name: event.name,
           lvl,
@@ -452,8 +453,9 @@ class PvESession {
           pwr: event.baseStats[0] + spawn.pwr,
           agl: event.baseStats[1] + spawn.agl,
           wis: event.baseStats[2] + spawn.wis
-        })
+        }
       }
+      this.#battle.spawn.stats = computeStats(this.#battle.spawn)
       this.hero.state = 'battle'
       this._notifyChange()
       return this.#battle.spawn
@@ -622,6 +624,7 @@ class PvESession {
           ? { id: itemId, qty }
           : await this._spawnItem(offered)
         this.addInventory(addItem)
+        response = { npcsay: 'Thank you for your purchase' }
       } break
 
       case 'sell': {
@@ -693,18 +696,20 @@ class PvESession {
       if (typeof item !== 'string') throw new Error('Expected item:uid but got ' + item)
       item = this.inventory.find(i => i.uid === item)
       if (!item) throw new Error('Equipment not found in inventory')
-      // Unequip existing
-      const current = this.equipment
-      if (spec.equip & E.HEAD && current.head) current.head.equipped = false // unequip
-      if (spec.equip & E.BODY && current.body) current.body.equipped = false // unequip
-      if (spec.equip & E.FEET && current.feet) current.feet.equipped = false // unequip
-      // OK this was simplier than i thought, if a 2H is already equipped it'll be set to false
-      // on either left or right trigger
-      // If a 2h is being equipped then it'll trigger both left and right unequip
-      if (spec.equip & E.RIGHT && current.right) current.right.equipped = false // unequip
-      if (spec.equip & E.LEFT && current.left) current.left.equipped = false // unequip
-      item.equipped = true
+      if (item.equipped) {
+        item.equipped = false
+      } else {
+        // Unequip existing
+        const current = this.equipment
+        if (spec.equip & E.HEAD && current.head) current.head.equipped = false // unequip
+        if (spec.equip & E.BODY && current.body) current.body.equipped = false // unequip
+        if (spec.equip & E.FEET && current.feet) current.feet.equipped = false // unequip
+        if (spec.equip & E.RIGHT && current.right) current.right.equipped = false // unequip
+        if (spec.equip & E.LEFT && current.left) current.left.equipped = false // unequip
+        item.equipped = true
+      }
       this._push({ type: 'use', item: item.uid })
+      this._notifyChange()
     } else if (spec.type === 'consumable') {
       console.error('Consumable items not yet implemented')
     } else {
@@ -738,13 +743,15 @@ class PvESession {
 }
 /** (The PvEbattle system)
   * warn: it mutates the defender (b)  */
-async function attack (a, b, rng) {
+async function attack (charA, charB, rng) {
+  const a = computeStats(charA)
+  const b = computeStats(charB)
   const hitRoll = await rng.roll(20)
   const treshold = 10 + b.agl - a.agl
 
   // Rolling below threshold is a miss, unless critical
   if (treshold > hitRoll && hitRoll !== 20) {
-    return { type: 'miss', attacker: a.name }
+    return { type: 'miss', attacker: charA.name }
   }
 
   let type = 'normal' // It's a hit.
@@ -761,19 +768,39 @@ async function attack (a, b, rng) {
   // console.log('def', b.def, ' atk', atk, ' dmg:', atk - b.def)
   const damage = Math.ceil(Math.max(atk - b.def, 0))
 
-  b.hp -= damage // Apply damage to HP
-  if (b.hp < 1) type = 'kill'
+  charB.hp -= damage // Apply damage to HP
+  if (charB.hp < 1) type = 'kill'
 
-  return { type, damage, attacker: a.name }
+  return { type, damage, attacker: charA.name }
 }
 
-function decorateBattleStats (o = {}, mod) {
-  const { pwr, agl, wis } = o
-  return {
-    ...o,
-    atk: pwr + Math.floor(agl * 0.6) + (mod?.atk || 0),
-    def: agl + Math.floor(wis * 0.5) + (mod?.def || 0)
+/**
+ * @typdef {{ pwr: number, agl: number, wis: number, atk: number, def: number, matk: number }} Stats
+ * @returns {Stats}
+ */
+function computeStats (character) {
+  let { pwr, agl, wis, atk, def, matk } = character // Base Stats
+  // Initialize t2 stats (only monsters may have them)
+  atk ||= 0
+  def ||= 0
+  matk ||= 0
+
+  if (Array.isArray(character.inventory)) {
+    for (const item of character.inventory) {
+      if (item.equipped && item.stats) {
+        if (item.stats.pwr) pwr += item.stats.pwr
+        if (item.stats.agl) agl += item.stats.agl
+        if (item.stats.wis) wis += item.stats.wis
+        if (item.stats.atk) atk += item.stats.atk
+        if (item.stats.def) def += item.stats.def
+        if (item.stats.matk) matk += item.stats.matk
+      }
+    }
   }
+  atk += pwr + Math.floor(agl * 0.6)
+  def += agl + Math.floor(wis * 0.333)
+  matk += wis + Math.floor((pwr + agl) * 0.2)
+  return { pwr, agl, wis, atk, def, matk }
 }
 
 /**
