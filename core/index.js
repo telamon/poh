@@ -6,7 +6,7 @@ import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
 import { mute, get, write, combine } from 'piconuro'
 import { pack, unpack } from 'msgpackr'
 // import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
-import { ITEMS, I, AREAS, DUNGEONS } from './db.js'
+import { ITEMS, I, AREAS, DUNGEONS, E } from './db.js'
 import { Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift } from './binorg.js'
 export * as DB from './db.js'
 
@@ -85,7 +85,7 @@ function HeroCPU (resolveLocalKey) {
   return {
     name: 'players',
     initialValue: {},
-    filter ({ state, block, parentBlock, AUTHOR }) {
+    filter ({ state, block, AUTHOR }) {
       const key = btok(AUTHOR)
       const data = SimpleKernel.decodeBlock(block.body)
       const { type: blockType } = data
@@ -99,7 +99,9 @@ function HeroCPU (resolveLocalKey) {
           if (!state[key]) return 'Hero not found'
           // TODO: are there any mutations that are not caused
           // by the PvESession machine? If so then validate.
-        break
+          // TODO: allow new state to be precomputed during filter,
+          // and passed to reduce for application?
+          break
         default:
           return 'unknown block-type'
       }
@@ -112,7 +114,7 @@ function HeroCPU (resolveLocalKey) {
       const { type: blockType } = data
 
       switch (blockType) {
-        case 'spawn_player': {
+        case 'spawn_player':
           state[key] = { // mkHero(data)
             dead: false, // TODO: probably not needed
             spawned: data.date,
@@ -122,7 +124,7 @@ function HeroCPU (resolveLocalKey) {
             memo: data.memo,
             state: 'idle',
             location: 0,
-            // life: 20, // Max-HP
+            // life: 20, // Max-HP is calculated, 'n-Lives' is hardcoded
             deaths: 0, // life - deaths < 0 == perma death
             hp: 20,
             experience: 0, // This should be tracked
@@ -133,19 +135,27 @@ function HeroCPU (resolveLocalKey) {
             ]
           }
           console.log('new hero discovered', key, state[key].name)
-        } break
+          break
         case 'pve': {
           const crap = async () => {
             const hero = upgradePlayer(AUTHOR, state[key])
             const sess = new PvESession(await sha256(block.parentSig), hero)
-            const low_level_diff = await sess.replay(data.actions) // is async, picostore is sync, shit.
+            await sess.replay(data.actions) // is async, picostore is sync, shit.
             // console.log('Replay outputs', sess._rng.outputs)
             const dst = state[key]
             dst.seen = data.date
             dst.state = 'idle' // Todo, remove HL prop-'state' from LL state.
             dst.adventures++
-            const props = ['location', 'deaths', 'hp', 'experience', 'career', 'inventory']
-            for (const p of props) dst[p] = sess.hero[p]
+            const propsToCopy = [
+              'location',
+              'deaths',
+              'hp',
+              'experience',
+              'career',
+              'inventory',
+              'exhaustion'
+            ]
+            for (const p of propsToCopy) dst[p] = sess.hero[p]
             // console.log('Lowlevel updated', dst)
 
             // TODO: monkey trigger update... and rewrite picostore
@@ -204,9 +214,9 @@ function upgradePlayer (pk, state) {
     exhaustion: 0
   }
   // Calculate max-hp
-  characterSheet.maxhp = 20
-    + characterSheet.pwr
-    + Math.floor((hero.lvl / 3)) * 5
+  characterSheet.maxhp = 20 +
+    characterSheet.pwr +
+    Math.floor((hero.lvl / 3)) * 5
 
   return decorateBattleStats(characterSheet, {
     atk: 1, // TODO: weapon
@@ -273,10 +283,12 @@ export class PRNG {
   inputs = []
   outputs = []
 
+  get consumed () { return this.rounds * 32 + this.offset }
+
   constructor (seed) {
     this._base = this.seed = toU8(seed)
   }
-  get consumed () { return this.rounds * 32 + this.offset }
+
   async replay (inputs) {
     if (this.rounds !== 0 && this.offset !== 0 && cmp(this._base, this.seed)) {
       throw new Error('replay() requires initial state')
@@ -382,6 +394,9 @@ class PvESession {
     return this.inventory.find(i => i.id === I.gold)?.qty || 0
   }
 
+  /** @type {EquippedView} */
+  get equipment () { return viewEquipped(this.inventory) }
+
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
     this._notifyChange = () => onChange({
@@ -467,10 +482,13 @@ class PvESession {
       hits.push(r1)
       if (r1.type !== 'kill') hits.push(await attack(hero, spawn, this._rng))
     }
+
+    for (const hit of hits) hit.own = hit.attacker === hero.name // Is hero attack
+
     let type = 'exchange'
     const lastHit = hits[hits.length - 1]
     if (lastHit.type === 'kill') {
-      type = lastHit.attacker === hero.name
+      type = lastHit.own
         ? 'victory'
         : 'defeat'
     }
@@ -649,7 +667,7 @@ class PvESession {
 
     if (item.stats) instance.stats = clone(item.stats)
     else if (spec.stats) instance.stats = clone(spec.stats)
-
+    if (spec.type === 'equipment') instance.equipped = false
     if (instance.stats && rollStats) {
       // instance.todoRandom = true
       // TODO: roll stats from spec? (only on loot drops, not on vendor buy)
@@ -663,6 +681,35 @@ class PvESession {
     instance.uid = toHex(seed)
     // TODO: decide wether or not we want wish to have schrödingers unindentified axe
     return instance
+  }
+
+  /**
+   * @param {LocalItem} item
+   */
+  useItem (item) {
+    const spec = this._getItemSpec(item)
+
+    if (spec.type === 'equipment') {
+      if (typeof item !== 'string') throw new Error('Expected item:uid but got ' + item)
+      item = this.inventory.find(i => i.uid === item)
+      if (!item) throw new Error('Equipment not found in inventory')
+      // Unequip existing
+      const current = this.equipment
+      if (spec.equip & E.HEAD && current.head) current.head.equipped = false // unequip
+      if (spec.equip & E.BODY && current.body) current.body.equipped = false // unequip
+      if (spec.equip & E.FEET && current.feet) current.feet.equipped = false // unequip
+      // OK this was simplier than i thought, if a 2H is already equipped it'll be set to false
+      // on either left or right trigger
+      // If a 2h is being equipped then it'll trigger both left and right unequip
+      if (spec.equip & E.RIGHT && current.right) current.right.equipped = false // unequip
+      if (spec.equip & E.LEFT && current.left) current.left.equipped = false // unequip
+      item.equipped = true
+      this._push({ type: 'use', item: item.uid })
+    } else if (spec.type === 'consumable') {
+      console.error('Consumable items not yet implemented')
+    } else {
+      console.warning('Attempted to use unusable item ' + item)
+    }
   }
 
   async replay (actions) {
@@ -679,6 +726,9 @@ class PvESession {
           break
         case 'interact':
           await this.interact(action.npc, action.action, ...action.args)
+          break
+        case 'use':
+          await this.useItem(action.item)
           break
         default:
           throw new Error('Unknown PvEAction: ' + action.type)
@@ -723,6 +773,45 @@ function decorateBattleStats (o = {}, mod) {
     ...o,
     atk: pwr + Math.floor(agl * 0.6) + (mod?.atk || 0),
     def: agl + Math.floor(wis * 0.5) + (mod?.def || 0)
+  }
+}
+
+/**
+ * @typedef {{
+ *  head: UniqueItem|undefined,
+ *  body: UniqueItem|undefined,
+ *  feet: UniqueItem|undefined,
+ *  right: UniqueItem|undefined,
+ *  left: UniqueItem|undefined,
+ * }} EquippedView
+ * @param {Item[]} inventory
+ * @return {EquippedView}
+ */
+export function viewEquipped (inventory) {
+  /** @type {EquippedView} */
+  const view = { left: undefined, right: undefined, head: undefined, body: undefined, feet: undefined }
+  for (const item of inventory) {
+    if (!(item.id in ITEMS)) throw new Error('ItemSpec not found!')
+    const { type, equip } = ITEMS[item.id]
+    if (type !== 'equipment') continue
+    if (equip === E.NONE) throw new Error('Unequippable equipment')
+    if (!item.equipped) continue
+    assertFree(equip)
+    if (equip & E.RIGHT) view.right = item
+    if (equip & E.LEFT) view.left = item
+    if (equip & E.HEAD) view.head = item
+    if (equip & E.BODY) view.body = item
+    if (equip & E.FEET) view.feet = item
+  }
+
+  return view
+
+  function assertFree (flags) {
+    if (flags & E.LEFT && view.left) throw new Error('DoubleQuip! LEFT is occupied')
+    if (flags & E.RIGHT && view.right) throw new Error('DoubleQuip! RIGHT is occupied')
+    if (flags & E.HEAD && view.head) throw new Error('DoubleQuip! HEAD is occupied')
+    if (flags & E.BODY && view.body) throw new Error('DoubleQuip! BODY is occupied')
+    if (flags & E.FEET && view.feet) throw new Error('DoubleQuip! FEET is occupied')
   }
 }
 

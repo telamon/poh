@@ -7,20 +7,28 @@
  * @param {any} opts
  */
 function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
+  const type = opts?.equip
+    ? 'equipment'
+    : !!(caps & (USE | USE_COMBAT))
+      ? 'consumable'
+      : 'commodity'
+
   const item = {
     id,
+    type,
     name,
     description,
     vendorPrice,
+    // Unpack flags
     stacks: !!(caps & STACK),
     sells: !!(caps & SELL),
     discards: !!(caps & DISCARD),
-    usable: !!(caps && USE),
-    usableCombat: !!(caps && USE_COMBAT),
+    usable: !!(caps & USE),
+    usableCombat: !!(caps & USE_COMBAT),
     equip: opts?.equip || NONE
   }
 
-  if (opts?.equip) {
+  if (type === 'equipment') {
     item.stats = { pwr: opts.pwr || 0, dex: opts.dex || 0, wis: opts.wis || 0 }
   }
 
@@ -51,6 +59,7 @@ const [STACK, SELL, DISCARD, USE, USE_COMBAT] = bitEnum(5)
 const NONE = 0
 const [LEFT, RIGHT, HEAD, BODY, FEET] = bitEnum(5)
 const TWOHAND = LEFT | RIGHT
+export const E = { NONE, LEFT, RIGHT, HEAD, BODY, FEET, TWOHAND }
 
 defineItem(1, 'Gold', 1, STACK, 'The stuff that gleams')
 defineItem(30, 'Herb', 100, STACK | SELL | DISCARD | USE, 'A natural anti-septic with relaxing properties')

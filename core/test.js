@@ -35,7 +35,8 @@ test.only('Express gameplay as functions', async t => {
   await session.travelTo(2) //  Go to town
   // Buy supplies
   await session.interact(1, 'buy', I.rusty_knife, 1)
-  t.ok(session.inventory.find(i => i.id === I.rusty_knife), 'Bought a knife from the blacksmith')
+  const weapon = session.inventory.find(i => i.id === I.rusty_knife)
+  t.ok(weapon, 'Bought a knife from the blacksmith')
 
   await session.interact(0, 'buy', I.ration, 20)
   let food = session.inventory.find(i => i.id === I.ration)
@@ -44,6 +45,10 @@ test.only('Express gameplay as functions', async t => {
   await session.interact(0, 'sell', I.ration, 5)
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
+
+  t.notOk(session.equipment.right, 'Nothing equipped')
+  await session.useItem(weapon.uid)
+  t.equal(session.equipment.right.uid, weapon.uid, 'Knife equipped')
 
   await session.travelTo(1) // Goto crossroads
   console.log(session.area)
@@ -75,7 +80,9 @@ test.only('Express gameplay as functions', async t => {
   heroCopy.seen = hero.seen // last-block-date
   heroCopy.adventures++ // adventure count increased
   heroCopy.state = 'idle' // sleeping
+  heroCopy.exhaustion = hero.exhaustion // Should always be reset
   t.deepEqual(hero, heroCopy, 'PvECPU is Deterministic')
+  // console.log('Prev: ', heroCopy, '\nCurrent:', hero)
 })
 
 test('PRNG', async t => {
