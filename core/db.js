@@ -1,3 +1,17 @@
+const A = Object.freeze({ // Area Names
+  spawn: 0,
+  crossroads: 1,
+  town: 2,
+  forest: 3,
+  mountain: 4,
+  swamp: 5,
+  citadel: 6,
+  sewers: 7,
+  underground_village: 8,
+  farm: 9,
+  plains_desolation: 10
+})
+
 /**
  * @param {number} id
  * @param {string} name
@@ -9,13 +23,16 @@
 function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   const type = opts?.equip
     ? 'equipment'
-    : !!(caps & (USE | USE_COMBAT))
-      ? 'consumable'
-      : 'commodity'
-
+    : (caps & (USE | USE_COMBAT))
+        ? 'consumable'
+        : 'commodity'
+  const subType = type === 'equipment'
+    ? (opts.equip & TWOHAND) ? 'weapon' : 'armor'
+    : opts.type
   const item = {
     id,
     type,
+    subType,
     name,
     description,
     vendorPrice,
@@ -29,9 +46,16 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   }
 
   if (type === 'equipment') {
-    item.stats = { pwr: opts.pwr || 0, dex: opts.dex || 0, wis: opts.wis || 0 }
+    item.stats = {
+      pwr: opts.pwr || 0,
+      agl: opts.agl || 0,
+      wis: opts.wis || 0,
+      atk: opts.atk || 0,
+      def: opts.def || 0,
+      matk: opts.matk || 0
+    }
   }
-
+  if (type === 'consumable') item.effect = opts.effect
   if (id in ITEMS) throw new Error(`ERROR: Item "${name}" id collision. ${id} belongs to ${ITEMS[id].name}`)
   ITEMS[id] = item
   I[name.toLowerCase().replace(/\s+/g, '_')] = id
@@ -46,8 +70,15 @@ function bitEnum (n) {
   if (!Number.isSafeInteger(1 << n)) throw new Error('OutOfBits')
   return Array.from(new Array(n)).map((_, ordinal) => 1 << ordinal)
 }
-function mkEnum(n) { return Array.from(new Array(n)).map(_, i => i) }
+export function mkEnum (n) { return Array.from(new Array(n)).map((_, i) => i) }
 
+/** @typedef {{ type: string }} Effect
+  * @type {(number, string, number, string, Effect, boolean) => void} */
+function defConsumable (id, name, price, desc, effect, combatUse = false) {
+  return defineItem(id, name, price, STACK | SELL | DISCARD | (combatUse ? USE_COMBAT : 0), desc, { effect })
+}
+/** @returns {Effect} heal effect structure */
+const fxHeal = (amount, bonus = 0) => ({ type: 'heal', amount, bonus })
 /// --------------------------------------
 /// ITEMS
 /// --------------------------------------
@@ -61,10 +92,15 @@ const [LEFT, RIGHT, HEAD, BODY, FEET] = bitEnum(5)
 const TWOHAND = LEFT | RIGHT
 export const E = { NONE, LEFT, RIGHT, HEAD, BODY, FEET, TWOHAND }
 
+/** defineItem(itemId: number, name: string, price: number, capabilities: uint, description: string, props: any) */
 defineItem(1, 'Gold', 1, STACK, 'The stuff that gleams')
-defineItem(30, 'Herb', 100, STACK | SELL | DISCARD | USE, 'A natural anti-septic with relaxing properties')
-defineItem(31, 'Ration', 2, STACK | SELL | DISCARD | USE, 'Restores health, when out of combat')
-defineItem(32, 'Fish', 2, STACK | SELL | DISCARD | USE, 'Freshly caught!')
+
+defConsumable(30, 'Herb', 100, 'A natural anti-septic with relaxing properties', fxHeal(6, 5), true)
+defConsumable(31, 'Ration', 2, 'Restores health, when out of combat', fxHeal(3))
+defConsumable(32, 'Fish', 2, 'Freshly caught!', fxHeal(3))
+defConsumable(83, 'Red Potion', 250, 'Restores a moderate amount of health immediately.', fxHeal(20, 10), true)
+
+
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
 })
@@ -83,30 +119,117 @@ defineItem(64, 'Flint Spear', 120, SELL | DISCARD, 'Ancient tool, great for hunt
 defineItem(65, 'Mace', 85, SELL | DISCARD, 'Seeing the damage makes you smarter', {
   equip: RIGHT, pwr: 7, agl: -1, wis: 1
 })
-defineItem(66, 'White Book', 90, SELL | DISCARD, 'Full of tasty cooking recipes, but your opponent doesn\'t know that.', {
-  equip: LEFT, pwr: 0, agl: 2, wis: 5
-})
+defineItem(66, 'White Book', 90, SELL | DISCARD,
+  'Full of tasty cooking recipes, but your opponent doesn\'t know that.',
+  { equip: LEFT, agl: 2, wis: 5 }
+)
 defineItem(67, 'Small buckler', 78, SELL | DISCARD, 'Will deflect an arrow if held at an approriate angle', {
-  equip: LEFT, pwr: 0, agl: 2, wis: 0, def: 5
+  equip: LEFT, agl: 2, wis: 0, def: 5
+})
+defineItem(68, 'Flute', 150, SELL | DISCARD, 'A charming piece of wood with decent mana conductivity', {
+  equip: LEFT, agl: 5, wis: 2, def: 2
+})
+defineItem(80, 'Wool Cap', SELL | DISCARD, 25, 'Keep your head warm', {
+  equip: HEAD, wis: 0, def: 1
+})
+defineItem(81, 'Pointy Hat', SELL | DISCARD, 80, 'A trend of the past', {
+  equip: HEAD, wis: 3, def: 1
+})
+// -- gpt halps
+// More items defined in the style provided
+defineItem(82, 'Leather Boots', 50, SELL | DISCARD, 'Durable footwear for rugged terrains.', {
+  equip: FEET, def: 2, agl: 1
+})
+defineItem(85, 'Torch', 5, SELL | DISCARD, 'Provides light in dark places. Lasts for one hour.')
+defineItem(86, 'Rope', 10, SELL | DISCARD, 'A sturdy rope, useful for climbing or binding things together.')
+defineItem(87, 'Iron Shield', 230, SELL | DISCARD, 'A solid piece of defense, quite heavy.', {
+  equip: LEFT, def: 7, agl: -3
+})
+defineItem(88, 'Long Bow', 450, SELL | DISCARD, 'A long range bow that requires skill and strength to use effectively.', {
+  equip: TWOHAND, pwr: 8, agl: 2
+})
+/* defineItem(89, 'Arrows', 1, STACK | SELL | DISCARD, // TODO: this is a good idea
+  'Used with a bow to hit things from afar.',
+  { count: 20 } // Number of arrows in a stack
+) */
+defineItem(91, 'Traveler\'s Cloak', 75, SELL | DISCARD, 'A rugged cloak designed for long journeys.', {
+  equip: BODY, def: 3, agl: 1
+})
+defineItem(92, 'Bandit Mask', 85, SELL | DISCARD, 'Provides anonymity and a bit of flair.', {
+  equip: HEAD, agl: 2
+})
+defineItem(93, 'Adventurer\'s Map', 200, STACK | SELL | DISCARD,
+  'Shows the surrounding region with notable landmarks.',
+  { type: 'key', unlocks: A.forest }
+)
+defineItem(94, 'Thieves\' Tools', 350, STACK | SELL | DISCARD, 'Contains lockpicks and other small tools essential for any aspiring thief.', {
+  type: 'key', unlocks: A.sewers
+})
+defineItem(95, 'Grapple Hook', 700, STACK | SELL | DISCARD, 'Useful for scaling walls or securing paths.', {
+  type: 'key', unlocks: A.mountain
+})
+
+defineItem(101, 'Broadsword', 500, SELL | DISCARD, 'A heavy blade that demands strength and endurance.', {
+  equip: RIGHT, pwr: 10, agl: -2
+})
+defineItem(102, 'Falchion', 400, SELL | DISCARD, 'A curved sword optimized for slashing through opponents.', {
+  equip: RIGHT, pwr: 8, agl: 3
+})
+defineItem(103, 'Whip', 250, SELL | DISCARD, 'Long range and flexibility, but requires elegance.', {
+  equip: RIGHT, pwr: 5, agl: 4
+})
+defineItem(104, 'Warhammer', 600, SELL | DISCARD, 'Brutal in force; this hammer can crush any armor.', {
+  equip: TWOHAND, pwr: 12, agl: -3
+})
+defineItem(105, 'Morning Star', 550, SELL | DISCARD, 'A spiked ball on a chain, effective against heavily armored foes.', {
+  equip: RIGHT, pwr: 11, agl: -1
+})
+defineItem(106, 'Flail', 450, SELL | DISCARD, 'Difficult to master, deadly to face.', {
+  equip: RIGHT, pwr: 9, agl: 1
+})
+defineItem(107, 'Rapier', 420, SELL | DISCARD, 'Favored by duelists for its agility and precision.', {
+  equip: RIGHT, pwr: 7, agl: 6
+})
+defineItem(108, 'Quarterstaff', 200, SELL | DISCARD, 'A versatile and balanced weapon, good for defense and attack.', {
+  equip: TWOHAND, pwr: 6, agl: 2
+})
+defineItem(109, 'Bronze Knuckles', 300, SELL | DISCARD, 'Enhances unarmed strikes significantly.', {
+  equip: RIGHT, pwr: 6, agl: 4, pow: 6
+})
+defineItem(120, 'Leather Vest', 150, SELL | DISCARD, 'Offers basic protection without sacrificing mobility.', {
+  equip: BODY, def: 4
+})
+defineItem(121, 'Hauberk', 350, SELL | DISCARD, 'A long coat of chainmail, offering solid defense.', {
+  equip: BODY, def: 6, agl: -1
+})
+defineItem(122, 'Plate Mail', 800, SELL | DISCARD, 'Heavy and protective, best for the front-line warriors.', {
+  equip: BODY, def: 8, agl: -3
+})
+defineItem(123, 'Ring Mail', 400, SELL | DISCARD, 'Rings linked together provide a balance between protection and flexibility.', {
+  equip: BODY, def: 5, agl: 0
+})
+defineItem(130, 'Circlet of Harmony', 220, SELL | DISCARD, 'A delicate circlet that enhances musical and magical abilities.', {
+  equip: HEAD, wis: 2, agl: 1
+})
+defineItem(131, 'Cabalist Hood', 190, SELL | DISCARD, 'A lightweight hood that helps concentrate magical energies.', {
+  equip: HEAD, wis: 4
+})
+defineItem(132, 'Headband', 160, SELL | DISCARD, 'A simple headband that aids in maintaining focus and balance.', {
+  equip: HEAD, agl: 2, wis: 1
+})
+defineItem(140, 'Silk Robe', 310, SELL | DISCARD, 'A beautifully crafted robe that does not hinder movement.', {
+  equip: BODY, agl: 3, def: 3
+})
+defineItem(141, 'Intricate Mantle', 340, SELL | DISCARD, 'Enchanted mantle that protects against physical and elemental harm.', {
+  equip: BODY, def: 4, wis: 4
+})
+defineItem(142, 'Zen Gi', 800, SELL | DISCARD, 'A reinforced gi that allows for free movement while providing basic protection.', {
+  equip: BODY, def: 12, agl: 8, wis: 3
 })
 
 /// --------------------------------------
 /// AREAS
 /// --------------------------------------
-
-const A = Object.freeze({ // ANames
-  spawn: 0,
-  crossroads: 1,
-  town: 2,
-  forest: 3,
-  mountain: 4,
-  swamp: 5,
-  citadel: 6,
-  sewers: 7,
-  underground_village: 8,
-  farm: 9,
-  plains_desolation: 10
-})
 
 export const AREAS = {}
 AREAS[A.spawn] = {
@@ -174,7 +297,7 @@ DUNGEONS[0] = {
     {
       type: 'monster',
       name: 'Tiny Goblin',
-      chance: 2,
+      chance: 6,
       baseStats: [4, 3, 1],
       lvl: { min: 3, max: 7 },
       hp: 7,
@@ -189,7 +312,7 @@ DUNGEONS[0] = {
     {
       type: 'monster',
       name: 'Green Slime',
-      chance: 3,
+      chance: 7,
       baseStats: [2, 1, 4],
       lvl: { min: 2, max: 5 },
       hp: 10,
@@ -201,6 +324,49 @@ DUNGEONS[0] = {
         { id: I.fish, chance: 2, qty: 2 },
         { id: I.mace, chance: 1, qty: 1 }
       ]
+    },
+    {
+      type: 'monster',
+      name: 'Wandering Hobbit',
+      chance: 5,
+      baseStats: [5, 4, 6],
+      lvl: { min: 5, max: 9 },
+      hp: 15,
+      xp: 18,
+      loot: [
+        { id: I.gold, chance: 4, qty: 18 },
+        { id: I.sharp_stick, chance: 2, qty: 1 },
+        { id: I.leather_boots, chance: 1, qty: 1 }
+      ]
+    },
+    {
+      type: 'monster',
+      name: 'Lost Spirit',
+      chance: 2,
+      baseStats: [3, 2, 8],
+      lvl: { min: 5, max: 8 },
+      hp: 9,
+      xp: 20,
+      loot: [
+        { id: I.gold, chance: 3, qty: 20 },
+        { id: I.white_book, chance: 1, qty: 1 }
+      ]
+    },
+    {
+      type: 'monster',
+      name: 'Hippogriff',
+      chance: 1,
+      baseStats: [7, 6, 4],
+      lvl: { min: 7, max: 16 },
+      hp: 25,
+      xp: 50,
+      loot: [
+        { id: I.gold, chance: 5, qty: 50 },
+        { id: I.whip, chance: 1, qty: 1 },
+        { id: I.flute, chance: 1, qty: 1 },
+        { id: I.healing_potion, chance: 3, qty: 2 }
+      ],
+      description: 'A majestic yet fearsome beast with the body of a lion and the wings of an eagle. Known to guard vast treasures.'
     }
   ]
 }

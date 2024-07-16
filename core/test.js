@@ -71,9 +71,12 @@ test.only('Express gameplay as functions', async t => {
   else {
     t.equal(res.type, 'victory', 'winrar!')
     t.ok(res.xp > 10)
-    t.ok(res.loot?.length > 0)
+    // t.ok(res.loot?.length > 0)
+    console.info("Looted n_items:", res.loot?.length)
   }
-
+  console.log('HP post battle', session.hero.hp)
+  await session.useItem(I.herb) // Heal up after battle
+  console.log('HP after heal', session.hero.hp)
   // await session.travelTo(2)
   // await sesion.npcAction('1', 'identify', inventoryIndexOfItem)
 

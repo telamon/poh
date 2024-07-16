@@ -219,6 +219,7 @@ function upgradePlayer (pk, state) {
     Math.floor((hero.lvl / 3)) * 5
 
   characterSheet.stats = computeStats(characterSheet)
+  characterSheet.equipment = viewEquipped(characterSheet.inventory)
   return characterSheet
 }
 /**
@@ -375,6 +376,7 @@ export class PRNG {
 
 class PvESession {
   started = Date.now()
+  /** @type {PRNG} */
   _rng = null
   hero = null
   _notifyChange = null
@@ -400,9 +402,12 @@ class PvESession {
   constructor (seed, hero, onChange = () => {}) {
     this.hero = clone(hero)
     this._notifyChange = () => onChange({
-      ...clone(this.hero),
-      exhaustion: this._rng.spent,
-      stats: computeStats(this.hero)
+      ...clone({
+        ...this.hero,
+        exhaustion: this._rng.spent,
+        stats: computeStats(this.hero),
+        equipment: this.equipment
+      })
     })
     this._rng = new PRNG(seed)
     this.hero.state = 'adventure'
@@ -494,17 +499,28 @@ class PvESession {
         ? 'victory'
         : 'defeat'
     }
-    const out = { type, hits, spawn }
+    const out = { type, hits, spawn, loot: [] }
     if (type === 'victory') {
       const { loot, xp } = this.#battle.event
       out.xp = xp + spawn.lvl
       hero.experience += out.xp
       // this.addInventory({ id: 1, qty: 99 }, true) // hard gold?
-      const item = await this._rng.pickOne(loot.map(clone), loot.map(i => i.chance))
-      const spec = this._getItemSpec(item)
+      let nItems = 0
+      if (loot.length > 0) {
+        nItems = await this._rng.pickOne(
+          [0, 1, 2, 3, 4],
+          [2, 5, 4, 2, 1]
+        )
+        if (this.hero.skills.includes(s => s === 'Scavenge')) nItems++
+        nItems = Math.min(nItems, loot.length)
+      }
 
-      if (spec.stacks) out.loot = [{ id: item.id, qty: item.qty }]
-      else out.loot = [await this._spawnItem(item, true)]
+      for (let i = 0; i < nItems; i++) {
+        const item = await this._rng.pickOne(loot.map(clone), loot.map(i => i.chance))
+        const spec = this._getItemSpec(item)
+        if (spec.stacks) out.loot.push({ id: item.id, qty: item.qty })
+        else out.loot.push(await this._spawnItem(item, true))
+      }
 
       this.addInventory(out.loot, true)
       hero.state = 'adventure'
@@ -534,7 +550,7 @@ class PvESession {
    *   sells: boolean,
    *   discards: boolean,
    *   usable: boolean,
-   *   combatUsable: boolean,
+   *   ussableCombat: boolean,
    *   equip: number
    *   stats?: { pwr: number, dex: number, wis: number }
    * }} ItemSpec
@@ -687,14 +703,15 @@ class PvESession {
   }
 
   /**
-   * @param {LocalItem} item
+   * @param {LocalItem} id
    */
-  useItem (item) {
-    const spec = this._getItemSpec(item)
+  async useItem (id) {
+    const spec = this._getItemSpec(id)
 
     if (spec.type === 'equipment') {
-      if (typeof item !== 'string') throw new Error('Expected item:uid but got ' + item)
-      item = this.inventory.find(i => i.uid === item)
+      if (this.state === 'battle') throw new Error('Cannot equip during battle')
+      if (typeof id !== 'string') throw new Error('Expected item:uid:string but got ' + id)
+      const item = this.inventory.find(i => i.uid === id)
       if (!item) throw new Error('Equipment not found in inventory')
       if (item.equipped) {
         item.equipped = false
@@ -711,10 +728,31 @@ class PvESession {
       this._push({ type: 'use', item: item.uid })
       this._notifyChange()
     } else if (spec.type === 'consumable') {
-      console.error('Consumable items not yet implemented')
+      if (this.state === 'battle' && !spec.ussableCombat) throw new Error(`${spec.name} cannot be used during combat`)
+      const { effect } = spec
+      switch(effect.type) {
+        case 'heal': {
+          let { amount, bonus } = effect // validate?
+          if (Number.isInteger(bonus)) {
+            const r = await this._rng.roll(20)
+            if (r > 10) amount += Math.floor(bonus / 2)
+            if (r === 20) amount += bonus
+          }
+          this.hero.hp = Math.min(this.hero.hp + amount, this.hero.maxhp)
+        } break
+        default: {
+          const msg = `Consumable item ${spec.name} effect ${effect} not yet implemented`
+          console.error(msg)
+          throw new Error(msg)
+        }
+      }
+
+      this.removeInventory(id) // does this._notifyChange()
+      this._push({ type: 'use', item: id })
     } else {
       console.warning('Attempted to use unusable item ' + item)
     }
+    return null
   }
 
   async replay (actions) {
@@ -843,3 +881,11 @@ export function viewEquipped (inventory) {
 }
 
 export function clone (o) { return unpack(pack(o)) }
+export function xpToLevel (n) { return Math.floor(100 * (1.3 ** n)) }
+export function levelFromXp (totalXp) {
+  let lv = 0
+  while (1) {
+    totalXp -= xpToLevel(++lv)
+    if (totalXp < 0) return lv
+  }
+}
