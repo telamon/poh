@@ -2,7 +2,9 @@ import test from 'tape'
 import crypto from 'node:crypto'
 import { boot, PRNG, clone } from './index.js'
 import { get, settle, next } from 'piconuro'
-import { I } from './db.js'
+import { I, A } from './db.js'
+import { JOB_PRIMITIVES } from './player.js'
+
 globalThis.crypto ||= crypto
 
 test('Kernel Boot & Create Character', async t => {
@@ -16,7 +18,73 @@ test('Kernel Boot & Create Character', async t => {
   t.equal(typeof get(kernel.$player), 'object')
 })
 
-test.only('Express gameplay as functions', async t => {
+test('Dissapearing item bug', async t => {
+  const kernel = await boot()
+  await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
+  const session = await kernel.beginPVE()
+  await session.travelTo(A.crossroads)
+  await session.travelTo(A.town)
+  kernel.$player(h => console.log('Inventory', h.inventory))
+  await session.interact(0, 'buy', I.ration, 1)
+  await session.interact(1, 'buy', I.dagger, 1)
+
+  // const inv = clone(session.hero.inventory)
+  t.equal(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'should have dagger')
+  t.equal(session.inventory.find(({ id }) => I.ration === id).qty, 1, 'should have 1 herbs')
+  await session.useItem(I.ration)
+  t.notOk(session.inventory.find(({ id }) => I.ration === id), 'no herbs')
+  t.equal(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'dagger is still there')
+})
+
+test('Levelsystem', async t => {
+  const kernel = await boot()
+  await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
+  const session = await kernel.beginPVE()
+
+  // Mocking career/xp works for now in tests,
+  // but op fails on all remote peers execution/ breaks your feed.
+  session.hero.experience = 35
+  await session._notifyChange() // Trigger high-level recalcs
+
+  let h = get(kernel.$player)
+
+  // h.experience => totalXP (LL)
+  t.equal(h.xpNext, 130, 'Has Relative experience required for next level')
+  t.equal(h.xpRel, 35, 'Being lvl0 xp = xp')
+  t.equal(h.jobPoints, 0, 'Zero unused job-points')
+
+  // Story: hero kills craploads of mobs
+  session.hero.experience = h.xpNext + 10 // overshoots by 10xp
+  await session._notifyChange() // Trigger high-level recalcs
+
+  t.equal(session.hero.career.length, 0, 'No career chosen')
+
+  h = get(kernel.$player)
+  t.equal(h.jobPoints, 1, '1 unspent point') // More than one not supported atm.
+
+  try {
+    await kernel.commitPVE()
+    t.fail('Broken commit')
+  } catch (error) {
+    t.equal(error.message, 'UnspentJobpoints', 'commitPVE is blocked')
+  }
+  const dingEvent = next(kernel.$messages, 1)
+  const diff = await session.choosePath('M')
+  t.deepEqual(diff, { pwr: 1, agl: 0, wis: 0, skills_added: [], skills_consumed: [] }, 'hero level up')
+  h = get(kernel.$player)
+  t.equal(h.jobPoints, 0, 'all points spent')
+  t.deepEqual(session.hero.career, ['M'], 'Walking the path of the monk')
+
+  const msg = await dingEvent
+  t.equal(msg.type, 'level_up')
+  t.deepEqual(msg.payload, diff)
+
+  // session.hero.experience +=  662 // overshoots by 10xp
+  // const l = await session._levelUp() // Trigger high-level recalcs
+  // console.log(l)
+})
+
+test('Express gameplay as functions', async t => {
   const kernel = await boot()
   await kernel.createHero('Bertil IIX', 'A formidable tester without regrets')
   /** @type {require('./index.js').PvESession} */
@@ -45,6 +113,9 @@ test.only('Express gameplay as functions', async t => {
   await session.interact(0, 'sell', I.ration, 5)
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
+  const hpBeforeRation = session.hero.hp
+  await session.useItem(I.ration)
+  t.notEqual(hpBeforeRation, session.hero.hp)
 
   console.log('Stats before', get(kernel.$player).stats)
   t.notOk(session.equipment.right, 'Nothing equipped')
@@ -61,6 +132,7 @@ test.only('Express gameplay as functions', async t => {
   console.log(session.area)
   const encounter = await session.explore(0) // -> ++RNG, 1turn used, fuck... state.
   console.log('You encountered', encounter)
+  console.log(JSON.stringify(encounter))
   let res
   do {
     res = await session.doBattle('attack')

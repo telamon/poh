@@ -1,4 +1,4 @@
-import { Hero } from './player.js'
+import { Hero, JOB_PRIMITIVES } from './player.js'
 import { SimpleKernel } from 'picostack'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
@@ -7,13 +7,14 @@ import { mute, get, write, combine } from 'piconuro'
 import { pack, unpack } from 'msgpackr'
 // import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
 import { ITEMS, I, AREAS, DUNGEONS, E } from './db.js'
-import { Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift } from './binorg.js'
+import { binstr, mapOverlap, Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift, upShift } from './binorg.js'
 export * as DB from './db.js'
 
 export class Kernel extends SimpleKernel {
   /** @type {PvESession} */
   _pve = null
   _pve_hero = write()
+  _msg_line = write({ type: 'none' })
 
   constructor (db) {
     super(db)
@@ -21,6 +22,8 @@ export class Kernel extends SimpleKernel {
   }
 
   get session () { return this._pve }
+
+  get $messages () { return this._msg_line[0] }
 
   get $player () {
     const $blockState = mute(
@@ -53,13 +56,17 @@ export class Kernel extends SimpleKernel {
   async beginPVE () {
     const psig = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
     const cs = get(this.$player)
-    this._pve = new PvESession(await sha256(psig), cs, this._pve_hero[1])
+    this._pve = new PvESession(this.pk, await sha256(psig), cs, this._pve_hero[1], this._msg_line[1])
     return this._pve
   }
 
   async commitPVE () {
     if (!this._pve) throw new Error('No Active Session')
     const session = this._pve
+
+    const { jobPoints } = computeProgress(session.hero.experience, session.hero.career)
+    if (jobPoints !== 0) throw new Error('UnspentJobpoints')
+
     // console.log('Precommit outputs', session._rng.outputs)
     this._pve = null
     this._pve_hero[1](null) // Flush out state
@@ -125,10 +132,11 @@ function HeroCPU (resolveLocalKey) {
             state: 'idle',
             location: 0,
             // life: 20, // Max-HP is calculated, 'n-Lives' is hardcoded
+            kills: 0,
             deaths: 0, // life - deaths < 0 == perma death
             hp: 20,
-            experience: 0, // This should be tracked
-            career: [1],
+            experience: 0, // Total Experience
+            career: [],
             inventory: [
               { id: I.gold, qty: 100 }, // gold
               { id: I.herb, qty: 3 } // Herb
@@ -139,7 +147,7 @@ function HeroCPU (resolveLocalKey) {
         case 'pve': {
           const crap = async () => {
             const hero = upgradePlayer(AUTHOR, state[key])
-            const sess = new PvESession(await sha256(block.parentSig), hero)
+            const sess = new PvESession(AUTHOR, await sha256(block.parentSig), hero)
             await sess.replay(data.actions) // is async, picostore is sync, shit.
             // console.log('Replay outputs', sess._rng.outputs)
             const dst = state[key]
@@ -153,7 +161,8 @@ function HeroCPU (resolveLocalKey) {
               'experience',
               'career',
               'inventory',
-              'exhaustion'
+              'exhaustion',
+              'kills'
             ]
             for (const p of propsToCopy) dst[p] = sess.hero[p]
             // console.log('Lowlevel updated', dst)
@@ -191,32 +200,13 @@ export function ktob (s) {
  * @param {any} Lowlevel state
  */
 function upgradePlayer (pk, state) {
-
-  const hero = new Hero(null, pk) // CRYPTOLISK=85*3=256bit, DNA = AUTHOR public key, XP = binary career
-  // TODO: level up
-  // state.career
-  const p = hero.profession
-  const baseStat = 3
-  // Dream exports to godot
   const characterSheet = {
     ...state,
-    gender: hero.gender ? 'male' : 'female',
-    pwr: hero.pwr + baseStat,
-    agl: hero.agl + baseStat,
-    wis: hero.wis + baseStat,
-    career: p.path,
-    career_str: p.originalPath,
-    skills: p.skills,
-    profession: p.job || 'pleb',
-    lvl: hero.lvl,
-    life: 3 + Math.floor((hero.lvl / 3)) * 2, // +2 lives every 3 levels
-    turns: 30 + hero.lvl,
-    exhaustion: 0
+    exhaustion: 0,
+    ...computeProgress(state.experience, state.career)
   }
-  // Calculate max-hp
-  characterSheet.maxhp = 20 +
-    characterSheet.pwr +
-    Math.floor((hero.lvl / 3)) * 5
+
+  levelUp(pk, characterSheet)
 
   characterSheet.stats = computeStats(characterSheet)
   characterSheet.equipment = viewEquipped(characterSheet.inventory)
@@ -399,23 +389,50 @@ class PvESession {
 
   get stats () { return computeStats(this.hero) }
 
-  constructor (seed, hero, onChange = () => {}) {
+  constructor (author, seed, hero, onChange = () => {}, sendMessage = () => {}) {
+    this.author = author
     this.hero = clone(hero)
+    this._rng = new PRNG(seed)
+    this.hero.state = 'adventure'
+    this._sendMessage = sendMessage
+
     this._notifyChange = () => onChange({
       ...clone({
         ...this.hero,
         exhaustion: this._rng.spent,
         stats: computeStats(this.hero),
-        equipment: this.equipment
+        equipment: this.equipment,
+        ...computeProgress(this.hero.experience, this.hero.career)
       })
     })
-    this._rng = new PRNG(seed)
-    this.hero.state = 'adventure'
+
     this._notifyChange()
   }
 
   _push (action) {
     this.stack.push(action)
+  }
+
+  get isPathChosen () { return false }
+
+  async choosePath (job) {
+    if (!~JOB_PRIMITIVES.indexOf(job)) throw new Error(`Path must be single letter of [${JOB_PRIMITIVES.join('')}]`)
+    const career = this.hero.career
+    const xp = this.hero.experience
+    const [lvl] = levelFromXp(xp)
+    if (lvl <= career.length * 3) throw new Error('Path cannot be chosen yet')
+    career.push(job)
+    this._push({ type: 'path', job })
+    return this._levelUp()
+  }
+
+  _levelUp () {
+    const payload = levelUp(this.author, this.hero)
+    if (payload) {
+      this._notifyChange()
+      this._sendMessage({ type: 'level_up', payload })
+    }
+    return payload
   }
 
   async travelTo (areaId) {
@@ -504,6 +521,7 @@ class PvESession {
       const { loot, xp } = this.#battle.event
       out.xp = xp + spawn.lvl
       hero.experience += out.xp
+      hero.kills += 1
       // this.addInventory({ id: 1, qty: 99 }, true) // hard gold?
       let nItems = 0
       if (loot.length > 0) {
@@ -518,19 +536,26 @@ class PvESession {
       for (let i = 0; i < nItems; i++) {
         const item = await this._rng.pickOne(loot.map(clone), loot.map(i => i.chance))
         const spec = this._getItemSpec(item)
-        if (spec.stacks) out.loot.push({ id: item.id, qty: item.qty })
-        else out.loot.push(await this._spawnItem(item, true))
+        const existing = out.loot.find(({ id }) => id === item.id)
+        if (spec.stacks) {
+          if (existing) existing.qty += item.qty // TODO: attach diminishing returns
+          else out.loot.push({ id: item.id, qty: item.qty })
+        } else if (!existing) {
+          out.loot.push(await this._spawnItem(item, true)) // Prevent looting same object twice
+        }
       }
 
       this.addInventory(out.loot, true)
       hero.state = 'adventure'
+
     } else if (type === 'defeat') {
       hero.hp = 10
       hero.deaths++
       hero.location = 0
       hero.state = 'adventure'
     }
-    this._notifyChange()
+    const ding = this._levelUp()
+    if (!ding) this._notifyChange()
     return out
   }
 
@@ -550,7 +575,7 @@ class PvESession {
    *   sells: boolean,
    *   discards: boolean,
    *   usable: boolean,
-   *   ussableCombat: boolean,
+   *   usableCombat: boolean,
    *   equip: number
    *   stats?: { pwr: number, dex: number, wis: number }
    * }} ItemSpec
@@ -603,7 +628,7 @@ class PvESession {
         const qty = item.qty || 1
         if (existing.qty < qty) throw new Error('InsufficientQuantity')
         existing.qty -= qty
-        if (existing.qty === 0) inventory.splice(inventory.indexOf(existing))
+        if (existing.qty === 0) inventory.splice(inventory.indexOf(existing), 1)
       } else {
         const uid = typeof item === 'string' ? item : item.uid
         if (typeof uid === 'undefined') throw new Error('ItemUID Not found')
@@ -707,7 +732,6 @@ class PvESession {
    */
   async useItem (id) {
     const spec = this._getItemSpec(id)
-
     if (spec.type === 'equipment') {
       if (this.state === 'battle') throw new Error('Cannot equip during battle')
       if (typeof id !== 'string') throw new Error('Expected item:uid:string but got ' + id)
@@ -728,12 +752,12 @@ class PvESession {
       this._push({ type: 'use', item: item.uid })
       this._notifyChange()
     } else if (spec.type === 'consumable') {
-      if (this.state === 'battle' && !spec.ussableCombat) throw new Error(`${spec.name} cannot be used during combat`)
+      if (this.state === 'battle' && !spec.usableCombat) throw new Error(`${spec.name} cannot be used during combat`)
       const { effect } = spec
-      switch(effect.type) {
+      switch (effect.type) {
         case 'heal': {
           let { amount, bonus } = effect // validate?
-          if (Number.isInteger(bonus)) {
+          if (Number.isInteger(bonus) && bonus > 0) {
             const r = await this._rng.roll(20)
             if (r > 10) amount += Math.floor(bonus / 2)
             if (r === 20) amount += bonus
@@ -750,7 +774,8 @@ class PvESession {
       this.removeInventory(id) // does this._notifyChange()
       this._push({ type: 'use', item: id })
     } else {
-      console.warning('Attempted to use unusable item ' + item)
+      console.warn('Attempted to use unusable item ' + id)
+      return { message: `${spec.name} cannot be used nor equipped.` }
     }
     return null
   }
@@ -832,6 +857,7 @@ function computeStats (character) {
         if (item.stats.atk) atk += item.stats.atk
         if (item.stats.def) def += item.stats.def
         if (item.stats.matk) matk += item.stats.matk
+        // TODO: rewrite all hero.maxhp lookups in order to add hp modifier
       }
     }
   }
@@ -883,9 +909,83 @@ export function viewEquipped (inventory) {
 export function clone (o) { return unpack(pack(o)) }
 export function xpToLevel (n) { return Math.floor(100 * (1.3 ** n)) }
 export function levelFromXp (totalXp) {
+  if (!Number.isSafeInteger(totalXp)) throw new Error('Expected number, got: ' + totalXp)
   let lv = 0
   while (1) {
     totalXp -= xpToLevel(++lv)
-    if (totalXp < 0) return lv
+    if (totalXp < 0) return [lv - 1, -totalXp]
   }
+}
+
+/**
+ * @param {Uint8Array} dna
+ * @param {Hero} hero
+ * @returns {undefined|{ pwr: number, agl: number, wis: number, profession?: string, skills_added: string[], skills_consumed: string[] }} levelUp diff
+ */
+export function levelUp (dna, hero) {
+  const { career, experience: xp } = hero
+  const [lvl] = levelFromXp(xp)
+  // const nextXP = xpToLevel(lvl + 1)
+
+  if (lvl > career.length * 3) throw new Error(`Insufficient career length, have: ${career.length} required: ${Math.ceil(lvl / 3)}`)
+
+  const nUp = lvl - hero.lvl
+
+  if (nUp < 1) return // nothing to do
+
+  const path = [1]
+  for (let i = 0; i < lvl; i++) {
+    const job = JOB_PRIMITIVES.indexOf(career[Math.floor(i / 3)])
+    upShift(path, (job >>> (i % 3)) & 0b1)
+  }
+  const exp = [1]
+  mapOverlap([dna, path], ([d, x]) => upShift(exp, d ^ x))
+
+  const binorg = new Hero(85, dna, exp) // CRYPTORG=85*3=256bit, DNA = AUTHOR public key, XP = binary career
+
+  const base = 3
+  // Generate diff
+  const diff = {
+    pwr: (base + binorg.pwr) - (hero.pwr || 0),
+    agl: (base + binorg.agl) - (hero.agl || 0),
+    wis: (base + binorg.wis) - (hero.wis || 0),
+    skills_added: [],
+    skills_consumed: []
+  }
+  const p = binorg.profession
+  const job = p.job || 'Jobless'
+  if (job !== hero.profession) diff.profession = job
+  for (const s in p.skills) if (!~hero.skills.indexOf(s)) diff.skills_added.push(s)
+  for (const s in hero.skills) if (!~p.skills.indexOf(s)) diff.skills_consumed.push(s)
+  // console.log('_p', p)
+
+  // Update hero with new properties
+  hero.lvl = lvl
+  hero.pwr = base + binorg.pwr
+  hero.agl = base + binorg.agl
+  hero.wis = base + binorg.wis
+  hero.profession = job
+  hero.gender = binorg.gender ? 'male' : 'female'
+  hero.path = p.path // This is the current state after growth
+  hero.skills = p.skills
+  hero.life = 3 + Math.floor((lvl / 3)) * 2 // +2 lives every 3 levels (maybe deprecated/hardcore)
+  hero.turns = 64 + lvl // This is stamina against exhaustion, more level, more sha256 hashes
+  hero.maxhp = 20 + hero.pwr + Math.floor((lvl / 3)) * 5
+  hero._path = p.path // Export poh2019 L-symbols
+  hero._path_o = p.originalPath // --""--
+  return diff
+}
+
+/**
+ * @param {number} xp Total Experience points
+ * @param {string|string[]} career Chosen path
+ * @returns {{ xpNext: number, xpRel: number, jobPoints: number }}
+ */
+function computeProgress (xp, career) {
+  if (typeof career === 'string') career = career.split('')
+  const [lvl, remain] = levelFromXp(xp)
+  const xpNext = xpToLevel(lvl + 1)
+  const xpRel = xpNext - remain
+  const jobPoints = Math.ceil(lvl / 3) - career.length
+  return { xpNext, xpRel, jobPoints }
 }

@@ -1,4 +1,4 @@
-const A = Object.freeze({ // Area Names
+export const A = Object.freeze({ // Area Names
   spawn: 0,
   crossroads: 1,
   town: 2,
@@ -29,6 +29,7 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   const subType = type === 'equipment'
     ? (opts.equip & TWOHAND) ? 'weapon' : 'armor'
     : opts.type
+
   const item = {
     id,
     type,
@@ -75,7 +76,7 @@ export function mkEnum (n) { return Array.from(new Array(n)).map((_, i) => i) }
 /** @typedef {{ type: string }} Effect
   * @type {(number, string, number, string, Effect, boolean) => void} */
 function defConsumable (id, name, price, desc, effect, combatUse = false) {
-  return defineItem(id, name, price, STACK | SELL | DISCARD | (combatUse ? USE_COMBAT : 0), desc, { effect })
+  return defineItem(id, name, price, STACK | SELL | DISCARD | USE | (combatUse ? USE_COMBAT : 0), desc, { effect })
 }
 /** @returns {Effect} heal effect structure */
 const fxHeal = (amount, bonus = 0) => ({ type: 'heal', amount, bonus })
@@ -100,14 +101,13 @@ defConsumable(31, 'Ration', 2, 'Restores health, when out of combat', fxHeal(3))
 defConsumable(32, 'Fish', 2, 'Freshly caught!', fxHeal(3))
 defConsumable(83, 'Red Potion', 250, 'Restores a moderate amount of health immediately.', fxHeal(20, 10), true)
 
-
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
 })
 defineItem(61, 'Rusty Knife', 10, SELL | DISCARD, 'Will cut through bread if force is applied', {
   equip: RIGHT, pwr: 3, agl: 3
 })
-defineItem(62, 'Dagger', 20, SELL | DISCARD, 'Standard stabbing equipment', {
+defineItem(62, 'Dagger', 56, SELL | DISCARD, 'Standard stabbing equipment', {
   equip: RIGHT, pwr: 4, agl: 5
 })
 defineItem(63, 'Short Sword', 80, SELL | DISCARD, 'Swing it', {
@@ -117,7 +117,7 @@ defineItem(64, 'Flint Spear', 120, SELL | DISCARD, 'Ancient tool, great for hunt
   equip: TWOHAND, pwr: 9, agl: 4
 })
 defineItem(65, 'Mace', 85, SELL | DISCARD, 'Seeing the damage makes you smarter', {
-  equip: RIGHT, pwr: 7, agl: -1, wis: 1
+  equip: RIGHT, pwr: 7, agl: 3, wis: 1
 })
 defineItem(66, 'White Book', 90, SELL | DISCARD,
   'Full of tasty cooking recipes, but your opponent doesn\'t know that.',
@@ -260,6 +260,11 @@ AREAS[A.town] = {
         I.ration,
         I.herb,
         I.rusty_knife,
+        I.torch,
+        I.rope,
+        I.adventurers_map,
+        I.thieves_tools,
+        I.grapple_hook,
         I.white_book
       ]
     },
@@ -271,7 +276,18 @@ AREAS[A.town] = {
         I.dagger,
         I.small_buckler,
         I.short_sword,
-        I.mace
+        I.mace,
+        I.iron_shield,
+        I.bronze_knuckles,
+        I.long_bow,
+        I.quarterstaff,
+        I.whip,
+        I.silk_robe,
+        I.travelers_cloak,
+        I.leather_vest,
+        I.wool_cap,
+        I.headband,
+        I.leather_boots,
       ]
     }
   ]
@@ -306,12 +322,14 @@ DUNGEONS[0] = {
       loot: [
         { id: I.gold, chance: 2, qty: 15 },
         { id: I.rusty_knife, chance: 1, qty: 1 },
+        { id: I.flint_spear, chance: 1, qty: 1 },
         { id: I.fish, chance: 2, qty: 1 }
-      ]
+      ],
+      description: 'A tiny gobling is gingerly barbecuing a fish, you wonder where he caught it.'
     },
     {
       type: 'monster',
-      name: 'Green Slime',
+      name: 'Jello Spawn',
       chance: 7,
       baseStats: [2, 1, 4],
       lvl: { min: 2, max: 5 },
@@ -319,15 +337,16 @@ DUNGEONS[0] = {
       xp: 15,
       // option: barter
       loot: [
-        { id: I.gold, chance: 2, qty: 8 },
+        { id: I.gold, chance: 3, qty: 8 },
         { id: I.herb, chance: 1, qty: 2 },
         { id: I.fish, chance: 2, qty: 2 },
         { id: I.mace, chance: 1, qty: 1 }
-      ]
+      ],
+      description: 'There used to be friendly slimes grazing the plains, but due to some sorcerery one of them mutated and ate all the rest'
     },
     {
       type: 'monster',
-      name: 'Wandering Hobbit',
+      name: 'Wandering Merchant',
       chance: 5,
       baseStats: [5, 4, 6],
       lvl: { min: 5, max: 9 },
@@ -337,7 +356,8 @@ DUNGEONS[0] = {
         { id: I.gold, chance: 4, qty: 18 },
         { id: I.sharp_stick, chance: 2, qty: 1 },
         { id: I.leather_boots, chance: 1, qty: 1 }
-      ]
+      ],
+      description: 'With a sly smile he offers you a copper for your boots'
     },
     {
       type: 'monster',
@@ -350,11 +370,12 @@ DUNGEONS[0] = {
       loot: [
         { id: I.gold, chance: 3, qty: 20 },
         { id: I.white_book, chance: 1, qty: 1 }
-      ]
+      ],
+      description: `The ghost of a woman set upon some misery still wanders the plains in search for closure`
     },
     {
       type: 'monster',
-      name: 'Hippogriff',
+      name: 'Hippogryph',
       chance: 1,
       baseStats: [7, 6, 4],
       lvl: { min: 7, max: 16 },
@@ -364,9 +385,27 @@ DUNGEONS[0] = {
         { id: I.gold, chance: 5, qty: 50 },
         { id: I.whip, chance: 1, qty: 1 },
         { id: I.flute, chance: 1, qty: 1 },
+        { id: I.leather_armor, chance: 1, qty: 1 },
         { id: I.healing_potion, chance: 3, qty: 2 }
       ],
-      description: 'A majestic yet fearsome beast with the body of a lion and the wings of an eagle. Known to guard vast treasures.'
+      description: `A majestic yet fearsome beast swoops down from the skies.\nIt looks like you've again been mistaken for dinner..`
+    },
+    {
+      type: 'monster',
+      name: 'Highway Robber',
+      chance: 3,
+      baseStats: [4, 6, 4],
+      lvl: { min: 6, max: 11 },
+      hp: 18,
+      xp: 28,
+      loot: [
+        { id: I.gold, chance: 5, qty: 31 },
+        { id: I.bandit_mask, chance: 2, qty: 1 },
+        { id: I.rapier, chance: 1, qty: 1 },
+        { id: I.long_bow, chance: 1, qty: 1 },
+        { id: I.ration, chance: 3, qty: 1 }
+      ],
+      description: `You're ambushed by a bandit, he wiggles his eyebrows at you saying "Hand over your gear peacefully and i'll let you keep your pantaloons"`
     }
   ]
 }
