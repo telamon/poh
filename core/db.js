@@ -29,7 +29,11 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   const subType = type === 'equipment'
     ? (opts.equip & TWOHAND) ? 'weapon' : 'armor'
     : opts.type
-
+  const ALL_CAPS = STACK|SELL|DISCARD|USE|USE_COMBAT|NONE
+  if (caps & ~ALL_CAPS) {
+    const unk = caps & ~ALL_CAPS
+    throw new Error(`Unknown capability ${unk}, 0b${unk.toString(2)}`)
+  }
   const item = {
     id,
     type,
@@ -59,7 +63,7 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   if (type === 'consumable') item.effect = opts.effect
   if (id in ITEMS) throw new Error(`ERROR: Item "${name}" id collision. ${id} belongs to ${ITEMS[id].name}`)
   ITEMS[id] = item
-  I[name.toLowerCase().replace(/\s+/g, '_')] = id
+  I[name.toLowerCase().replace(/\s+/g, '_').replace(/'/g, '')] = id
 }
 
 /**
@@ -129,10 +133,10 @@ defineItem(67, 'Small buckler', 78, SELL | DISCARD, 'Will deflect an arrow if he
 defineItem(68, 'Flute', 150, SELL | DISCARD, 'A charming piece of wood with decent mana conductivity', {
   equip: LEFT, agl: 5, wis: 2, def: 2
 })
-defineItem(80, 'Wool Cap', SELL | DISCARD, 25, 'Keep your head warm', {
+defineItem(80, 'Wool Cap', 25, SELL | DISCARD, 'Keep your head warm', {
   equip: HEAD, wis: 0, def: 1
 })
-defineItem(81, 'Pointy Hat', SELL | DISCARD, 80, 'A trend of the past', {
+defineItem(81, 'Pointy Hat', 80, SELL | DISCARD, 'A trend of the past', {
   equip: HEAD, wis: 3, def: 1
 })
 // -- gpt halps
@@ -287,7 +291,7 @@ AREAS[A.town] = {
         I.leather_vest,
         I.wool_cap,
         I.headband,
-        I.leather_boots,
+        I.leather_boots
       ]
     }
   ]
@@ -317,7 +321,7 @@ DUNGEONS[0] = {
       baseStats: [4, 3, 1],
       lvl: { min: 3, max: 7 },
       hp: 7,
-      xp: 10,
+      xp: 10 + 100,
       // option: barter
       loot: [
         { id: I.gold, chance: 2, qty: 15 },
@@ -334,7 +338,7 @@ DUNGEONS[0] = {
       baseStats: [2, 1, 4],
       lvl: { min: 2, max: 5 },
       hp: 10,
-      xp: 15,
+      xp: 15 + 100,
       // option: barter
       loot: [
         { id: I.gold, chance: 3, qty: 8 },
@@ -377,16 +381,16 @@ DUNGEONS[0] = {
       type: 'monster',
       name: 'Hippogryph',
       chance: 1,
-      baseStats: [7, 6, 4],
+      baseStats: [8, 8, 4],
       lvl: { min: 7, max: 16 },
-      hp: 25,
-      xp: 50,
+      hp: 55,
+      xp: 73,
       loot: [
         { id: I.gold, chance: 5, qty: 50 },
         { id: I.whip, chance: 1, qty: 1 },
         { id: I.flute, chance: 1, qty: 1 },
-        { id: I.leather_armor, chance: 1, qty: 1 },
-        { id: I.healing_potion, chance: 3, qty: 2 }
+        { id: I.leather_vest, chance: 1, qty: 1 },
+        { id: I.red_potion, chance: 3, qty: 2 }
       ],
       description: `A majestic yet fearsome beast swoops down from the skies.\nIt looks like you've again been mistaken for dinner..`
     },

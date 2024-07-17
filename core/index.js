@@ -40,8 +40,12 @@ export class Kernel extends SimpleKernel {
   }
 
   // godot cannot handle '$' method names nor iterate JS-Arrays
-  get on_player () { // neuro is flexible
+  get on_player () { // but neuro is flexible
     return mute(this.$player, value => JSON.stringify(value))
+  }
+
+  get on_message () {
+    return mute(this.$messages, value => JSON.stringify(value))
   }
 
   /**
@@ -462,7 +466,7 @@ class PvESession {
       // Random level-up
       const lvl = this.hero.lvl <= event.lvl.min
         ? event.lvl.min // no point rolling, scale down, save entropy
-        : await this._rng.roll(event.lvl.max, Math.min(this.hero.lvl, event.level.min))
+        : await this._rng.roll(event.lvl.max, Math.min(this.hero.lvl, event.lvl.min))
       const randStats = await this._rng.randomBytes(roundByte(lvl))
       for (let i = 0; i < lvl; i++) spawn.progress(downShift(randStats)) // downshift is safe with u8's , upshift is not.
       this.#battle = {
@@ -554,7 +558,12 @@ class PvESession {
       hero.location = 0
       hero.state = 'adventure'
     }
-    const ding = this._levelUp()
+    let ding
+    try {
+      ding = this._levelUp()
+    } catch (e) {
+      console.warn('squelching assumed career length error', e)
+    }
     if (!ding) this._notifyChange()
     return out
   }
@@ -698,7 +707,7 @@ class PvESession {
     const id = typeof target === 'string'
       ? this.inventory.find(i => i.uid === target)?.id
       : Number.isInteger(target) ? target : target.id
-    if (typeof id === 'undefined') throw new Error(`Item Not found ${target}`)
+    if (typeof id === 'undefined') throw new Error(`Could not resolve to item: ${JSON.stringify(target)}`)
     if (!(id in ITEMS)) throw new Error(`ItemSpec Not Found ${id}`)
     return ITEMS[id]
   }
@@ -719,10 +728,11 @@ class PvESession {
 
     // TODO: use psig not rng/base
     const seed = this._rng._base.slice(0, 8)
-    const ctr = this.#counter_items_spawned++
-    seed[7] = ctr & 0xff
+    const ctr = ++this.#counter_items_spawned
     seed[6] = (ctr >>> 8) & 0xff
+    seed[7] = ctr & 0xff
     instance.uid = toHex(seed)
+    console.info('ItemSpawned', instance.uid, instance)
     // TODO: decide wether or not we want wish to have schrödingers unindentified axe
     return instance
   }
@@ -946,6 +956,7 @@ export function levelUp (dna, hero) {
   const base = 3
   // Generate diff
   const diff = {
+    lvl,
     pwr: (base + binorg.pwr) - (hero.pwr || 0),
     agl: (base + binorg.agl) - (hero.agl || 0),
     wis: (base + binorg.wis) - (hero.wis || 0),
@@ -971,6 +982,7 @@ export function levelUp (dna, hero) {
   hero.life = 3 + Math.floor((lvl / 3)) * 2 // +2 lives every 3 levels (maybe deprecated/hardcore)
   hero.turns = 64 + lvl // This is stamina against exhaustion, more level, more sha256 hashes
   hero.maxhp = 20 + hero.pwr + Math.floor((lvl / 3)) * 5
+  hero.hp = hero.maxhp // Heal Up on ding
   hero._path = p.path // Export poh2019 L-symbols
   hero._path_o = p.originalPath // --""--
   return diff
