@@ -167,7 +167,7 @@ export class Binorg {
 }
 
 // Round bits upwards to closet byte
-export function roundByte (b) { return (b >> 3) + (b % 8 ? 1 : 0) }
+export function roundByte (b) { return (b >> 3) + (b % 8 ? 1 : 0) } // = Math.ceil(b / 8)
 
 /*
  * Treats buffer as a series of latched 8bit shift-registers

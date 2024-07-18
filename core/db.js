@@ -57,7 +57,7 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
       wis: opts.wis || 0,
       atk: opts.atk || 0,
       def: opts.def || 0,
-      matk: opts.matk || 0
+      mag: opts.mag || 0
     }
   }
   if (type === 'consumable') item.effect = opts.effect
@@ -88,7 +88,7 @@ const fxHeal = (amount, bonus = 0) => ({ type: 'heal', amount, bonus })
 /// ITEMS
 /// --------------------------------------
 export const ITEMS = {}
-export const I = {} // ITEM NAMES
+export const I = {} // ITEM NAMES // TODO: convert to error throwing LatchProxy when using nonexisting name
 
 // FLAGS
 const [STACK, SELL, DISCARD, USE, USE_COMBAT] = bitEnum(5)
@@ -104,7 +104,7 @@ defConsumable(30, 'Herb', 100, 'A natural anti-septic with relaxing properties',
 defConsumable(31, 'Ration', 2, 'Restores health, when out of combat', fxHeal(3))
 defConsumable(32, 'Fish', 2, 'Freshly caught!', fxHeal(3))
 defConsumable(83, 'Red Potion', 250, 'Restores a moderate amount of health immediately.', fxHeal(20, 10), true)
-
+// TOOD: defEquipment
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
 })
@@ -150,7 +150,8 @@ defineItem(87, 'Iron Shield', 230, SELL | DISCARD, 'A solid piece of defense, qu
   equip: LEFT, def: 7, agl: -3
 })
 defineItem(88, 'Long Bow', 450, SELL | DISCARD, 'A long range bow that requires skill and strength to use effectively.', {
-  equip: TWOHAND, pwr: 8, agl: 2
+  equip: TWOHAND, pwr: 12, agl: 8,
+  req: { lvl: 6, agl: 10 }
 })
 /* defineItem(89, 'Arrows', 1, STACK | SELL | DISCARD, // TODO: this is a good idea
   'Used with a bow to hit things from afar.',
@@ -270,7 +271,8 @@ AREAS[A.town] = {
         I.thieves_tools,
         I.grapple_hook,
         I.white_book
-      ]
+      ],
+      buys: ['commodity', 'consumable']
     },
     {
       id: 1,
@@ -292,7 +294,9 @@ AREAS[A.town] = {
         I.wool_cap,
         I.headband,
         I.leather_boots
-      ]
+      ],
+      buys: ['equipment']
+      // TODO: custom buy/sell scaler
     }
   ]
 }
@@ -313,7 +317,7 @@ export const DUNGEONS = {}
 DUNGEONS[0] = {
   id: 0,
   name: 'Plains around crossroads',
-  encounters: [
+  encounters: [ // TODO: defineMonster
     {
       type: 'monster',
       name: 'Tiny Goblin',
@@ -321,7 +325,7 @@ DUNGEONS[0] = {
       baseStats: [4, 3, 1],
       lvl: { min: 3, max: 7 },
       hp: 7,
-      xp: 10 + 100,
+      xp: 10,
       // option: barter
       loot: [
         { id: I.gold, chance: 2, qty: 15 },
@@ -329,7 +333,7 @@ DUNGEONS[0] = {
         { id: I.flint_spear, chance: 1, qty: 1 },
         { id: I.fish, chance: 2, qty: 1 }
       ],
-      description: 'A tiny gobling is gingerly barbecuing a fish, you wonder where he caught it.'
+      description: 'A tiny goblin is gingerly barbecuing a fish, you wonder where he caught it.'
     },
     {
       type: 'monster',
@@ -338,7 +342,7 @@ DUNGEONS[0] = {
       baseStats: [2, 1, 4],
       lvl: { min: 2, max: 5 },
       hp: 10,
-      xp: 15 + 100,
+      xp: 15,
       // option: barter
       loot: [
         { id: I.gold, chance: 3, qty: 8 },
@@ -413,3 +417,5 @@ DUNGEONS[0] = {
     }
   ]
 }
+
+// TODO: function valdiate(): no-unlinked-items, no-unlinked-areas, no-unlinked dungeons

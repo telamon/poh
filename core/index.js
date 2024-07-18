@@ -417,8 +417,6 @@ class PvESession {
     this.stack.push(action)
   }
 
-  get isPathChosen () { return false }
-
   async choosePath (job) {
     if (!~JOB_PRIMITIVES.indexOf(job)) throw new Error(`Path must be single letter of [${JOB_PRIMITIVES.join('')}]`)
     const career = this.hero.career
@@ -467,8 +465,10 @@ class PvESession {
       const lvl = this.hero.lvl <= event.lvl.min
         ? event.lvl.min // no point rolling, scale down, save entropy
         : await this._rng.roll(event.lvl.max, Math.min(this.hero.lvl, event.lvl.min))
+
       const randStats = await this._rng.randomBytes(roundByte(lvl))
       for (let i = 0; i < lvl; i++) spawn.progress(downShift(randStats)) // downshift is safe with u8's , upshift is not.
+
       this.#battle = {
         event,
         spawn: {
@@ -500,15 +500,32 @@ class PvESession {
     const hero = this.hero
     const spawn = this.#battle.spawn
     const hits = []
-    // TODO: rng.getRandomBytes(1) do initative roll for both splitting 8 bits into 4 (each rolls d16)
-    if (hero.agl > spawn.agl) {
-      const r1 = await attack(hero, spawn, this._rng)
+
+    const spawnAction = 'attack' // TODO: roll what monster does
+    const spawnArg = null
+
+    const baseBonus = await this._rng.randomBytes(1)
+    let heroInitiate = hero.agl + (baseBonus & 0b11) // + D4
+    let spawnInitiative = spawn.agl + ((baseBonus >> 2) & 0b11) // + D4
+    if (action === 'run') heroInitiate += ((baseBonus >> 4) & 0b11) // Bonus = 2D4
+    if (spawnAction === 'run') spawnInitiative += ((baseBonus >> 6) & 0b11) // Bonus = 2D4
+    const perform = async (action, arg, actor, target) => {
+      if (action === 'attack') return attack(actor, target, this._rng)
+      if (action === 'cast') return combatCast(actor, arg, target, this._rng)
+      if (action === 'run') return attemptEscape(actor, target, this._rng)
+      throw new Error('Unknown combat action: ' + action)
+    }
+
+    if (heroInitiate > spawnInitiative) {
+      const r1 = await perform(action, arg, hero, spawn)
       hits.push(r1)
-      if (r1.type !== 'kill') hits.push(await attack(spawn, hero, this._rng))
+      const skip = ['kill', 'escaped'].some(t => t === r1.type)
+      if (!skip) hits.push(await perform(spawnAction, spawnArg, spawn, hero))
     } else {
-      const r1 = await attack(spawn, hero, this._rng)
+      const r1 = await perform(spawnAction, spawnArg, spawn, hero)
       hits.push(r1)
-      if (r1.type !== 'kill') hits.push(await attack(hero, spawn, this._rng))
+      const skip = ['kill', 'escaped'].some(t => t === r1.type)
+      if (!skip) hits.push(await perform(action, arg, hero, spawn))
     }
 
     for (const hit of hits) hit.own = hit.attacker === hero.name // Is hero attack
@@ -551,11 +568,12 @@ class PvESession {
 
       this.addInventory(out.loot, true)
       hero.state = 'adventure'
-
     } else if (type === 'defeat') {
       hero.hp = 10
       hero.deaths++
       hero.location = 0
+      hero.state = 'adventure'
+    } else if (type === 'escaped') {
       hero.state = 'adventure'
     }
     let ding
@@ -814,6 +832,22 @@ class PvESession {
     }
   }
 }
+
+async function attemptEscape (escapee, intimidator, rng) {
+  const a = computeStats(escapee)
+  const b = computeStats(intimidator)
+  const treshold = 10 + b.agl - a.agl
+  const hitRoll = await rng.roll(20)
+  return hitRoll === 20 || hitRoll >= treshold
+    ? { type: 'escaped', attacker: escapee.name }
+    : { type: 'escape-failed', attacker: escapee.name }
+}
+
+async function combatCast (skill, caster, target, rng) {
+  console.warn('combatCast not implemented!', skill, caster, target)
+  return { type: 'miss', attacker: caster.name }
+}
+
 /** (The PvEbattle system)
   * warn: it mutates the defender (b)  */
 async function attack (charA, charB, rng) {
@@ -848,15 +882,15 @@ async function attack (charA, charB, rng) {
 }
 
 /**
- * @typdef {{ pwr: number, agl: number, wis: number, atk: number, def: number, matk: number }} Stats
+ * @typdef {{ pwr: number, agl: number, wis: number, atk: number, def: number, mag: number }} Stats
  * @returns {Stats}
  */
 function computeStats (character) {
-  let { pwr, agl, wis, atk, def, matk } = character // Base Stats
+  let { pwr, agl, wis, atk, def, mag } = character // Base Stats
   // Initialize t2 stats (only monsters may have them)
   atk ||= 0
   def ||= 0
-  matk ||= 0
+  mag ||= 0
 
   if (Array.isArray(character.inventory)) {
     for (const item of character.inventory) {
@@ -866,15 +900,15 @@ function computeStats (character) {
         if (item.stats.wis) wis += item.stats.wis
         if (item.stats.atk) atk += item.stats.atk
         if (item.stats.def) def += item.stats.def
-        if (item.stats.matk) matk += item.stats.matk
+        if (item.stats.mag) mag += item.stats.mag
         // TODO: rewrite all hero.maxhp lookups in order to add hp modifier
       }
     }
   }
   atk += pwr + Math.floor(agl * 0.6)
   def += agl + Math.floor(wis * 0.333)
-  matk += wis + Math.floor((pwr + agl) * 0.2)
-  return { pwr, agl, wis, atk, def, matk }
+  mag += wis + Math.floor((pwr + agl) * 0.2)
+  return { pwr, agl, wis, atk, def, mag }
 }
 
 /**
