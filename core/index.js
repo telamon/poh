@@ -478,7 +478,8 @@ class PvESession {
           hp: event.hp + lvl,
           pwr: event.baseStats[0] + spawn.pwr,
           agl: event.baseStats[1] + spawn.agl,
-          wis: event.baseStats[2] + spawn.wis
+          wis: event.baseStats[2] + spawn.wis,
+          description: event.description
         }
       }
       this.#battle.spawn.stats = computeStats(this.#battle.spawn)
@@ -530,14 +531,15 @@ class PvESession {
 
     for (const hit of hits) hit.own = hit.attacker === hero.name // Is hero attack
 
-    let type = 'exchange'
     const lastHit = hits[hits.length - 1]
-    if (lastHit.type === 'kill') {
-      type = lastHit.own
-        ? 'victory'
-        : 'defeat'
-    }
+    const type = lastHit.type === 'kill'
+      ? (lastHit.own ? 'victory' : 'defeat')
+      : lastHit.type === 'escaped'
+        ? (lastHit.own ? 'escaped' : 'left_behind') // Implement escapee loses 1 random item from inv
+        : 'exchange'
+
     const out = { type, hits, spawn, loot: [] }
+
     if (type === 'victory') {
       const { loot, xp } = this.#battle.event
       out.xp = xp + spawn.lvl
@@ -573,7 +575,29 @@ class PvESession {
       hero.deaths++
       hero.location = 0
       hero.state = 'adventure'
-    } else if (type === 'escaped') {
+    } else if (type === 'escaped' || type === 'left_behind') {
+      if (lastHit.own) {
+        const items = this.inventory.filter(i => !i.equipped && i.id !== I.gold)
+        // There are items to loose
+        if (items.length) {
+          const lostItem = items.length ===1 
+            ? items[0]
+            : await this._rng.pickOne(items, items.map(() => 1))
+          // out.loot.push({ id: lostItem.id, uid: item.uid, qty: 1 })
+          out.loot.push({ ...lostItem, qty: 1 })
+        }
+        // There is gold to loose
+        if (this.balance > 0) {
+          const qty = Math.min(this.balance, (20 - lastHit.roll)) // TODO: redo this logic
+          out.loot.push({ id: I.gold, qty })
+          this.removeInventory(out.loot)
+        }
+      } else {
+        const qty = Math.max(this.balance, (20 - lastHit.roll)) // TODO: redo this logic
+        out.loot.push({ id: I.gold, qty })
+        // TODO: create function rollLoot() and 1 random item drop
+        this.addInventory(out.loot)
+      }
       hero.state = 'adventure'
     }
     let ding
@@ -836,11 +860,12 @@ class PvESession {
 async function attemptEscape (escapee, intimidator, rng) {
   const a = computeStats(escapee)
   const b = computeStats(intimidator)
-  const treshold = 10 + b.agl - a.agl
+  let treshold = 10 + b.agl - a.agl
+  treshold -= Math.floor(a.pwr / 0.3)
   const hitRoll = await rng.roll(20)
   return hitRoll === 20 || hitRoll >= treshold
-    ? { type: 'escaped', attacker: escapee.name }
-    : { type: 'escape-failed', attacker: escapee.name }
+    ? { type: 'escaped', attacker: escapee.name, roll: hitRoll }
+    : { type: 'escape-failed', attacker: escapee.name, roll: hitRoll }
 }
 
 async function combatCast (skill, caster, target, rng) {
