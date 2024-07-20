@@ -71,14 +71,43 @@ export class Kernel extends SimpleKernel {
     const { jobPoints } = computeProgress(session.hero.experience, session.hero.career)
     if (jobPoints !== 0) throw new Error('UnspentJobpoints')
 
-    // console.log('Precommit outputs', session._rng.outputs)
-    this._pve = null
-    this._pve_hero[1](null) // Flush out state
-    return await this.createBlock(null, 'pve', { actions: session.stack })
+    // try {
+    //   const head = await this.repo._getHeadPtr(this.pk);
+    //   await this.feed()
+    // } catch (err) { debugger }
+    const h = session.hero
+    const p = upgradePlayer(this.pk, this.store.state.players[btok(this.pk)])
+    const r = 24 * 60 * 60 * 1000
+    const diff = {
+      days: 1,
+      kills: h.kills - p.kills,
+      escapes: h.escapes - p.escapes,
+      lvl: h.lvl - p.lvl,
+      hp: h.maxhp - p.maxhp,
+      pwr: h.stats.pwr - p.stats.pwr,
+      agl: h.stats.agl - p.stats.agl,
+      wis: h.stats.wis - p.stats.wis,
+      experience: h.experience - p.experience,
+      refresh_at: h.seen + Math.floor((h.seen - h.spawned) / r) + r
+    }
+
+    let block = null
+    if (Date.now < 0) { // Disabled for now.
+      this._pve = null
+      this._pve_hero[1](null) // Flush out session, fall back on store
+      // console.log('Precommit outputs', session._rng.outputs)
+      block = await this.createBlock(null, 'pve', { actions: session.stack })
+    }
+
+    return [diff, block]
   }
 }
 
 // PvE Gameplay
+
+/**
+ * PvE Reducer/Slicer/Indexer
+ */
 function HeroCPU (resolveLocalKey) {
   // There's no clean solution in pico for injecting local identity ATM.
   /*
@@ -137,6 +166,7 @@ function HeroCPU (resolveLocalKey) {
             location: 0,
             // life: 20, // Max-HP is calculated, 'n-Lives' is hardcoded
             kills: 0,
+            escapes: 0,
             deaths: 0, // life - deaths < 0 == perma death
             hp: 20,
             experience: 0, // Total Experience
@@ -221,6 +251,11 @@ function upgradePlayer (pk, state) {
  * avoid setting globalThis.K in production builds
  */
 export async function boot (cb) {
+  // Wow
+  if (Buffer.isBuffer.toString() === 'function isBuffer(b) {\n  return b instanceof Buffer;\n}') {
+    console.warn('Applying unholy monkeypatch of the year, TODO: release Picofeed 8.x upgrade Picorepo and PicoStore')
+    Buffer.isBuffer = function (b) { return b instanceof Buffer || b?._isBuffer }
+  }
   console.log('boot() called, allocating memory')
   const DB = new MemoryLevel('rant.lvl', {
     valueEncoding: 'buffer',
@@ -577,10 +612,11 @@ class PvESession {
       hero.state = 'adventure'
     } else if (type === 'escaped' || type === 'left_behind') {
       if (lastHit.own) {
+        hero.escapes++
         const items = this.inventory.filter(i => !i.equipped && i.id !== I.gold)
         // There are items to loose
         if (items.length) {
-          const lostItem = items.length ===1 
+          const lostItem = items.length === 1
             ? items[0]
             : await this._rng.pickOne(items, items.map(() => 1))
           // out.loot.push({ id: lostItem.id, uid: item.uid, qty: 1 })

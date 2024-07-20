@@ -184,7 +184,7 @@ defineItem(103, 'Whip', 250, SELL | DISCARD, 'Long range and flexibility, but re
   equip: RIGHT, pwr: 5, agl: 4
 })
 defineItem(104, 'Warhammer', 600, SELL | DISCARD, 'Brutal in force; this hammer can crush any armor.', {
-  equip: TWOHAND, pwr: 12, agl: -3
+  equip: TWOHAND, pwr: 12, agl: 0
 })
 defineItem(105, 'Morning Star', 550, SELL | DISCARD, 'A spiked ball on a chain, effective against heavily armored foes.', {
   equip: RIGHT, pwr: 11, agl: -1
@@ -193,10 +193,10 @@ defineItem(106, 'Flail', 450, SELL | DISCARD, 'Difficult to master, deadly to fa
   equip: RIGHT, pwr: 9, agl: 1
 })
 defineItem(107, 'Rapier', 420, SELL | DISCARD, 'Favored by duelists for its agility and precision.', {
-  equip: RIGHT, pwr: 7, agl: 6
+  equip: RIGHT, pwr: 7, agl: 3
 })
 defineItem(108, 'Quarterstaff', 200, SELL | DISCARD, 'A versatile and balanced weapon, good for defense and attack.', {
-  equip: TWOHAND, pwr: 6, agl: 2
+  equip: TWOHAND, pwr: 8, agl: 2
 })
 defineItem(109, 'Bronze Knuckles', 300, SELL | DISCARD, 'Enhances unarmed strikes significantly.', {
   equip: RIGHT, pwr: 6, agl: 4, pow: 6
@@ -208,19 +208,19 @@ defineItem(121, 'Hauberk', 350, SELL | DISCARD, 'A long coat of chainmail, offer
   equip: BODY, def: 6, agl: -1
 })
 defineItem(122, 'Plate Mail', 800, SELL | DISCARD, 'Heavy and protective, best for the front-line warriors.', {
-  equip: BODY, def: 8, agl: -3
+  equip: BODY, def: 12, agl: -3
 })
 defineItem(123, 'Ring Mail', 400, SELL | DISCARD, 'Rings linked together provide a balance between protection and flexibility.', {
-  equip: BODY, def: 5, agl: 0
+  equip: BODY, def: 5, agl: -1
 })
 defineItem(130, 'Circlet of Harmony', 220, SELL | DISCARD, 'A delicate circlet that enhances musical and magical abilities.', {
-  equip: HEAD, wis: 2, agl: 1
+  equip: HEAD, wis: 3, agl: 2, def: 1, mag: 2
 })
 defineItem(131, 'Cabalist Hood', 190, SELL | DISCARD, 'A lightweight hood that helps concentrate magical energies.', {
-  equip: HEAD, wis: 4
+  equip: HEAD, wis: 4, def: 2, mag: 1
 })
 defineItem(132, 'Headband', 160, SELL | DISCARD, 'A simple headband that aids in maintaining focus and balance.', {
-  equip: HEAD, agl: 2, wis: 1
+  equip: HEAD, agl: 2, wis: 1, def: 1
 })
 defineItem(140, 'Silk Robe', 310, SELL | DISCARD, 'A beautifully crafted robe that does not hinder movement.', {
   equip: BODY, agl: 3, def: 3
@@ -288,7 +288,7 @@ AREAS[A.town] = {
         I.long_bow,
         I.quarterstaff,
         I.whip,
-        I.silk_robe,
+        I.ring_mail,
         I.travelers_cloak,
         I.leather_vest,
         I.wool_cap,
@@ -340,7 +340,7 @@ DUNGEONS[0] = {
       name: 'Jello Spawn',
       chance: 7,
       baseStats: [2, 1, 4],
-      lvl: { min: 2, max: 5 },
+      lvl: { min: 1, max: 5 },
       hp: 10,
       xp: 15,
       // option: barter
@@ -350,7 +350,24 @@ DUNGEONS[0] = {
         { id: I.fish, chance: 2, qty: 2 },
         { id: I.mace, chance: 1, qty: 1 }
       ],
-      description: 'There used to be friendly slimes grazing the plains, but due to some sorcerery one of them mutated and ate all the rest'
+      description: 'There used to be friendly slimes grazing the plains, but due to some xorcery one of them mutated and then ate all the rest.'
+    },
+    {
+      type: 'monster',
+      name: 'Jello Pup',
+      chance: 6,
+      baseStats: [2, 5, 3],
+      lvl: { min: 2, max: 6 },
+      hp: 10,
+      xp: 15,
+      // option: barter
+      loot: [
+        { id: I.gold, chance: 3, qty: 8 },
+        { id: I.herb, chance: 1, qty: 2 },
+        { id: I.fish, chance: 2, qty: 2 },
+        { id: I.whip, chance: 1, qty: 1 }
+      ],
+      description: "Ok so, they used to be cute, then they grew teeth and now there's legs...\nMaybe now is a good time to see who's swifter?"
     },
     {
       type: 'monster',
@@ -376,8 +393,9 @@ DUNGEONS[0] = {
       hp: 9,
       xp: 20,
       loot: [
-        { id: I.gold, chance: 3, qty: 20 },
-        { id: I.white_book, chance: 1, qty: 1 }
+        { id: I.gold, chance: 4, qty: 20 },
+        { id: I.white_book, chance: 2, qty: 1 },
+        { id: I.intricate_mantle, chance: 1, qty: 1 }
       ],
       description: `The ghost of a woman set upon some misery still wanders the plains in search for closure`
     },
@@ -385,7 +403,7 @@ DUNGEONS[0] = {
       type: 'monster',
       name: 'Hippogryph',
       chance: 1,
-      baseStats: [8, 8, 4],
+      baseStats: [9, 8, 4],
       lvl: { min: 7, max: 16 },
       hp: 55,
       xp: 73,
@@ -393,7 +411,8 @@ DUNGEONS[0] = {
         { id: I.gold, chance: 5, qty: 50 },
         { id: I.whip, chance: 1, qty: 1 },
         { id: I.flute, chance: 1, qty: 1 },
-        { id: I.leather_vest, chance: 1, qty: 1 },
+        { id: I.plate_mail, chance: 1, qty: 1 },
+        { id: I.warhammer, chance: 1, qty: 1 },
         { id: I.red_potion, chance: 3, qty: 2 }
       ],
       description: `A majestic yet fearsome beast swoops down from the skies.\nIt looks like you've again been mistaken for dinner..`
@@ -418,4 +437,4 @@ DUNGEONS[0] = {
   ]
 }
 
-// TODO: function valdiate(): no-unlinked-items, no-unlinked-areas, no-unlinked dungeons
+// TODO: function valdiate(): no-unlinked-items, no-unlinked-areas, no-unlinked-dungeons, no-unlinked-encounters

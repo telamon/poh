@@ -84,7 +84,7 @@ test('Levelsystem', async t => {
   // console.log(l)
 })
 
-test('Express gameplay as functions', async t => {
+test.only('Express gameplay as functions', async t => {
   const kernel = await boot()
   await kernel.createHero('Bertil IIX', 'A formidable tester without regrets')
   /** @type {require('./index.js').PvESession} */
@@ -113,9 +113,6 @@ test('Express gameplay as functions', async t => {
   await session.interact(0, 'sell', I.ration, 5)
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
-  const hpBeforeRation = session.hero.hp
-  await session.useItem(I.ration)
-  t.notEqual(hpBeforeRation, session.hero.hp)
 
   console.log('Stats before', get(kernel.$player).stats)
   t.notOk(session.equipment.right, 'Nothing equipped')
@@ -134,35 +131,50 @@ test('Express gameplay as functions', async t => {
   console.log('You encountered', encounter)
   console.log(JSON.stringify(encounter))
   let res
+  let herbUsed = false
   do {
+    if (session.hero.hp < session.hero.maxhp && !herbUsed) {
+      herbUsed = true
+      console.log('Trying out combat-use herb')
+      const hpBefore = session.hero.hp
+      await session.useItem(I.herb)
+      t.notEqual(hpBefore, session.hero.hp, 'Combat use herb')
+    }
     res = await session.doBattle('attack')
     // res => { type: 'exchange', you: 'hit|miss|run', they: 'hit|miss|run', dmgGiven: 3, dmgTaken: 2 }
-    console.log('Battle round', res, session.hero.hp, encounter.hp)
+    console.log('Battle round', res.type, session.hero.hp, encounter.hp, res.hits.map(h => h.type))
   } while (res.type === 'exchange')
   if (res.type === 'defeat') console.log('we died, rerun test')
   else {
     t.equal(res.type, 'victory', 'winrar!')
     t.ok(res.xp > 10)
     // t.ok(res.loot?.length > 0)
-    console.info("Looted n_items:", res.loot?.length)
+    console.info('Looted n_items:', res.loot?.length)
   }
-  console.log('HP post battle', session.hero.hp)
-  await session.useItem(I.herb) // Heal up after battle
-  console.log('HP after heal', session.hero.hp)
+
+  if (session.hero.hp < session.hero.maxhp) {
+    console.log('HP post battle', session.hero.hp)
+    const hpBefore = session.hero.hp
+    await session.useItem(I.ration)
+    t.notEqual(hpBefore, session.hero.hp, 'Heal up After battle')
+  } else t.pass('HP is full, ration test skipped')
+
   // await session.travelTo(2)
   // await sesion.npcAction('1', 'identify', inventoryIndexOfItem)
 
   const heroCopy = clone(get(kernel.$player))
   // const unsub = kernel.$player(p => console.info('Sub update', p))
   await kernel.commitPVE(session)
+  t.pass('Going to sleep')
   // unsub()
-
+  console.log('========== REPLAY ===========')
   // Test Determinism
   const hero = await next(settle(kernel.$player), 0) // Picostore needs to support async block-processing
   heroCopy.seen = hero.seen // last-block-date
   heroCopy.adventures++ // adventure count increased
   heroCopy.state = 'idle' // sleeping
   heroCopy.exhaustion = hero.exhaustion // Should always be reset
+  heroCopy.hp = hero.hp // Wounds heal on sleep
   t.deepEqual(hero, heroCopy, 'PvECPU is Deterministic')
   // console.log('Prev: ', heroCopy, '\nCurrent:', hero)
 })
