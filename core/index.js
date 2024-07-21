@@ -303,7 +303,7 @@ export function toU8 (o) {
 /* End of bufer utils */
 
 export class PRNG {
-  static MAX_ROUNDS = 32
+  static MAX_ROUNDS = 32 // TODO: Should be configurable Hero.level + 20
   _base = null
   seed = null
   rounds = 0

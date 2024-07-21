@@ -84,6 +84,7 @@ function defConsumable (id, name, price, desc, effect, combatUse = false) {
 }
 /** @returns {Effect} heal effect structure */
 const fxHeal = (amount, bonus = 0) => ({ type: 'heal', amount, bonus })
+const fxEscape = (amount, bonus = 0) => ({ type: 'escape', amount, bonus })
 /// --------------------------------------
 /// ITEMS
 /// --------------------------------------
@@ -104,6 +105,12 @@ defConsumable(30, 'Herb', 100, 'A natural anti-septic with relaxing properties',
 defConsumable(31, 'Ration', 2, 'Restores health, when out of combat', fxHeal(3))
 defConsumable(32, 'Fish', 2, 'Freshly caught!', fxHeal(3))
 defConsumable(83, 'Red Potion', 250, 'Restores a moderate amount of health immediately.', fxHeal(20, 10), true)
+defConsumable(84, 'Smokebomb', 40, 'When you have to, you have to', fxEscape(6, 12))
+
+// defineItem(5, '')
+// equipmentItem(7, 'The legendary sword de')
+defineItem(6, 'Hypercore', STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
+
 // TOOD: defEquipment
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
@@ -267,6 +274,7 @@ AREAS[A.town] = {
         I.rusty_knife,
         I.torch,
         I.rope,
+        I.smoke_bomb,
         I.adventurers_map,
         I.thieves_tools,
         I.grapple_hook,
@@ -413,7 +421,10 @@ DUNGEONS[0] = {
         { id: I.flute, chance: 1, qty: 1 },
         { id: I.plate_mail, chance: 1, qty: 1 },
         { id: I.warhammer, chance: 1, qty: 1 },
-        { id: I.red_potion, chance: 3, qty: 2 }
+        { id: I.red_potion, chance: 3, qty: 2 },
+        { id: I.hyper_core, chance: 9, qty: 1 }
+        // { id: I.holy_replica, chance: Infinity, qty: 1 },
+        // { id: I.hyper_modem56, chance: Infinity, qty: 5 }
       ],
       description: `A majestic yet fearsome beast swoops down from the skies.\nIt looks like you've again been mistaken for dinner..`
     },
