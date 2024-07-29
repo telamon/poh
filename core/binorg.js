@@ -1,5 +1,5 @@
 // const varint = require('varint')
-const randomBytes = (n) => {
+export const randomBytes = n => {
   const buf = new Uint8Array(n)
   globalThis.crypto.getRandomValues(buf)
   return buf

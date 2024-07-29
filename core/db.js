@@ -29,7 +29,7 @@ function defineItem (id, name, vendorPrice, caps, description, opts = {}) {
   const subType = type === 'equipment'
     ? (opts.equip & TWOHAND) ? 'weapon' : 'armor'
     : opts.type
-  const ALL_CAPS = STACK|SELL|DISCARD|USE|USE_COMBAT|NONE
+  const ALL_CAPS = STACK | SELL | DISCARD | USE | USE_COMBAT | NONE
   if (caps & ~ALL_CAPS) {
     const unk = caps & ~ALL_CAPS
     throw new Error(`Unknown capability ${unk}, 0b${unk.toString(2)}`)
@@ -111,7 +111,7 @@ defConsumable(84, 'Smokebomb', 40, 'When you have to, you have to', fxEscape(6, 
 // equipmentItem(7, 'The legendary sword de')
 defineItem(6, 'Hypercore', STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
 
-// TOOD: defEquipment
+// TODO: rewrite to defEq(id, name, price, slot, description, stats= {})
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
   equip: RIGHT, pwr: 2
 })
@@ -157,7 +157,9 @@ defineItem(87, 'Iron Shield', 230, SELL | DISCARD, 'A solid piece of defense, qu
   equip: LEFT, def: 7, agl: -3
 })
 defineItem(88, 'Long Bow', 450, SELL | DISCARD, 'A long range bow that requires skill and strength to use effectively.', {
-  equip: TWOHAND, pwr: 12, agl: 8,
+  equip: TWOHAND,
+  pwr: 12,
+  agl: 8,
   req: { lvl: 6, agl: 10 }
 })
 /* defineItem(89, 'Arrows', 1, STACK | SELL | DISCARD, // TODO: this is a good idea
@@ -405,7 +407,7 @@ DUNGEONS[0] = {
         { id: I.white_book, chance: 2, qty: 1 },
         { id: I.intricate_mantle, chance: 1, qty: 1 }
       ],
-      description: `The ghost of a woman set upon some misery still wanders the plains in search for closure`
+      description: 'The ghost of a woman set upon some misery still wanders the plains in search for closure'
     },
     {
       type: 'monster',
@@ -426,7 +428,7 @@ DUNGEONS[0] = {
         // { id: I.holy_replica, chance: Infinity, qty: 1 },
         // { id: I.hyper_modem56, chance: Infinity, qty: 5 }
       ],
-      description: `A majestic yet fearsome beast swoops down from the skies.\nIt looks like you've again been mistaken for dinner..`
+      description: 'A majestic yet fearsome beast swoops down from the skies.\nIt looks like you\'ve again been mistaken for dinner..'
     },
     {
       type: 'monster',
@@ -443,7 +445,7 @@ DUNGEONS[0] = {
         { id: I.long_bow, chance: 1, qty: 1 },
         { id: I.ration, chance: 3, qty: 1 }
       ],
-      description: `You're ambushed by a bandit, he wiggles his eyebrows at you saying "Hand over your gear peacefully and i'll let you keep your pantaloons"`
+      description: 'You\'re ambushed by a bandit, he wiggles his eyebrows at you saying "Hand over your gear peacefully and i\'ll let you keep your pantaloons"'
     }
   ]
 }

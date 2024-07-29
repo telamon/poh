@@ -1,5 +1,6 @@
 import { Hero, JOB_PRIMITIVES } from './player.js'
-import { SimpleKernel } from 'picostack'
+import { SimpleKernel, Memory } from 'picostack'
+import { toHex, toU8, cmp } from 'picofeed'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
 import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
@@ -7,9 +8,9 @@ import { mute, get, write, combine } from 'piconuro'
 import { pack, unpack } from 'msgpackr'
 // import { encode, encodingLength, decode, binstr } from 'binorg/binorg.js'
 import { ITEMS, I, AREAS, DUNGEONS, E } from './db.js'
-import { binstr, mapOverlap, Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift, upShift } from './binorg.js'
+import { mapOverlap, Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift, upShift } from './binorg.js'
 export * as DB from './db.js'
-
+const MEM_HERO = 'H'
 export class Kernel extends SimpleKernel {
   /** @type {PvESession} */
   _pve = null
@@ -18,7 +19,8 @@ export class Kernel extends SimpleKernel {
 
   constructor (db) {
     super(db)
-    this.store.register(HeroCPU(() => this.pk))
+    // this.store.register(HeroCPU(() => this.pk))
+    this.store.register(MEM_HERO, HeroMemory)
   }
 
   get session () { return this._pve }
@@ -27,10 +29,10 @@ export class Kernel extends SimpleKernel {
 
   get $player () {
     const $blockState = mute(
-      s => this.store.on('players', s),
+      s => this.store.on(MEM_HERO, s),
       (players) => {
         if (!this.pk) return
-        const player = players[btok(this.pk)]
+        const player = players[this.pk]
         if (!player) return // Create a hero first
         return upgradePlayer(this.pk, player)
       }
@@ -54,7 +56,7 @@ export class Kernel extends SimpleKernel {
    * @param {string} memo Shows on death/tombstone
    */
   async createHero (name, memo) {
-    return this.createBlock(null, 'spawn_player', { name, memo })
+    return this.createBlock(MEM_HERO, { type: 'spawn_player', name, memo })
   }
 
   async beginPVE () {
@@ -76,8 +78,9 @@ export class Kernel extends SimpleKernel {
     //   await this.feed()
     // } catch (err) { debugger }
     const h = session.hero
-    const p = upgradePlayer(this.pk, this.store.state.players[btok(this.pk)])
-    const r = 24 * 60 * 60 * 1000
+    const llh = await this.store.roots[MEM_HERO].readState(this.pk)
+    if (!llh) throw new Error('No such hero')
+    const p = upgradePlayer(this.pk, llh)
     const diff = {
       days: 1,
       kills: h.kills - p.kills,
@@ -88,143 +91,107 @@ export class Kernel extends SimpleKernel {
       agl: h.stats.agl - p.stats.agl,
       wis: h.stats.wis - p.stats.wis,
       experience: h.experience - p.experience,
-      refresh_at: h.seen + Math.floor((h.seen - h.spawned) / r) + r
+      refresh_at: nextEntropyRefreshAt(h.spawned, h.seen)
     }
 
-    let block = null
-    if (Date.now < 0) { // Disabled for now.
-      this._pve = null
-      this._pve_hero[1](null) // Flush out session, fall back on store
-      // console.log('Precommit outputs', session._rng.outputs)
-      block = await this.createBlock(null, 'pve', { actions: session.stack })
-    }
-
+    this._pve = null
+    this._pve_hero[1](null) // Flush out session, fall back on store
+    // console.log('Precommit outputs', session._rng.outputs)
+    const block = await this.createBlock(MEM_HERO, { type: 'pve', actions: session.stack })
     return [diff, block]
   }
 }
 
+function nextEntropyRefreshAt (spawned, seen) {
+  const r = 24 * 60 * 60 * 1000
+  if (seen === -1) return spawned // Newborn
+  return seen + Math.floor((seen - spawned) / r) + r
+}
 // PvE Gameplay
 
 /**
  * PvE Reducer/Slicer/Indexer
  */
-function HeroCPU (resolveLocalKey) {
-  // There's no clean solution in pico for injecting local identity ATM.
-  /*
-  let _key = null
-  const localKey = () => {
-    if (_key) return _key
-    if (typeof resolveLocalKey === 'function') {
-      _key = resolveLocalKey()
-      if (!_key) throw new Error('RacingCondition? falsy localKey')
-      return _key
-    } else throw new Error('resolveLocalKey expected to be function')
+class HeroMemory extends Memory {
+  initialValue = {
+    dead: false, // TODO: probably not needed
+    spawned: -1,
+    seen: -1,
+    adventures: 0, // n-sessions completed
+    name: 'unknown',
+    memo: 'rip',
+    state: 'idle',
+    location: 0,
+    kills: 0,
+    escapes: 0,
+    deaths: 0, // life - deaths < 0 == perma death
+    hp: 20,
+    experience: 0, // Total Experience
+    career: [],
+    inventory: [
+      { id: I.gold, qty: 100 }, // gold
+      { id: I.herb, qty: 3 } // Herb
+    ]
   }
-  */
 
-  return {
-    name: 'players',
-    initialValue: {},
-    filter ({ state, block, AUTHOR }) {
-      const key = btok(AUTHOR)
-      const data = SimpleKernel.decodeBlock(block.body)
-      const { type: blockType } = data
-      switch (blockType) {
-        case 'spawn_player':
-          if (!block.isGenesis) return 'Genesis block required'
-          if (state[key]) return 'Player already spawned'
-          break
-        case 'pve':
-          if (block.isGenesis) return 'Cant Adventure without parent'
-          if (!state[key]) return 'Hero not found'
-          // TODO: are there any mutations that are not caused
-          // by the PvESession machine? If so then validate.
-          // TODO: allow new state to be precomputed during filter,
-          // and passed to reduce for application?
-          break
-        default:
-          return 'unknown block-type'
+  idOf ({ AUTHOR }) { return AUTHOR }
+  /** @type {import('@telamon/picostore').ComputeFunction} */
+  async compute (value, ctx) {
+    const { payload, reject, date, block, AUTHOR, postpone } = ctx
+    const { type: blockType } = payload
+
+    if (date > Date.now()) return reject('Block from future') // postpone(date - Date.now()) // TODO: not really implemented, but usecase, use relative/absolute time?
+
+    switch (blockType) {
+      case 'spawn_player': {
+        if (!block.genesis) return reject('Only genesis blocks can hold spawn_player')
+        if (value.spawned !== -1) return reject('Player already spawned')
+        const { name, memo } = payload
+        if (!name || name === '') return reject('Invalid Hero name')
+        // console.log('new hero discovered', AUTHOR, name)
+        return { ...value, spawned: date, name, memo }
       }
-      return false
-    },
 
-    reducer ({ state, block, AUTHOR }) {
-      const key = btok(AUTHOR)
-      const data = SimpleKernel.decodeBlock(block.body)
-      const { type: blockType } = data
+      case 'pve': {
+        if (block.genesis) return reject("It's dangerous to adventure without parent")
+        const refreshAt = nextEntropyRefreshAt(value.spawned, value.seen)
+        if (date < refreshAt) return reject('Attempted to commit too soon')
 
-      switch (blockType) {
-        case 'spawn_player':
-          state[key] = { // mkHero(data)
-            dead: false, // TODO: probably not needed
-            spawned: data.date,
-            seen: data.date,
-            adventures: 0, // n-sessions completed
-            name: data.name,
-            memo: data.memo,
-            state: 'idle',
-            location: 0,
-            // life: 20, // Max-HP is calculated, 'n-Lives' is hardcoded
-            kills: 0,
-            escapes: 0,
-            deaths: 0, // life - deaths < 0 == perma death
-            hp: 20,
-            experience: 0, // Total Experience
-            career: [],
-            inventory: [
-              { id: I.gold, qty: 100 }, // gold
-              { id: I.herb, qty: 3 } // Herb
-            ]
-          }
-          console.log('new hero discovered', key, state[key].name)
-          break
-        case 'pve': {
-          const crap = async () => {
-            const hero = upgradePlayer(AUTHOR, state[key])
-            const sess = new PvESession(AUTHOR, await sha256(block.parentSig), hero)
-            await sess.replay(data.actions) // is async, picostore is sync, shit.
-            // console.log('Replay outputs', sess._rng.outputs)
-            const dst = state[key]
-            dst.seen = data.date
-            dst.state = 'idle' // Todo, remove HL prop-'state' from LL state.
-            dst.adventures++
-            const propsToCopy = [
-              'location',
-              'deaths',
-              'hp',
-              'experience',
-              'career',
-              'inventory',
-              'exhaustion',
-              'kills'
-            ]
-            for (const p of propsToCopy) dst[p] = sess.hero[p]
-            // console.log('Lowlevel updated', dst)
-
-            // TODO: monkey trigger update... and rewrite picostore
-            for (const n of this.observers) n(state)
-          }
-          crap()
-            .catch(err => console.error('CRITICAL HeroCPU Failure!', err))
-        } break
-        default:
-          throw new Error('unkown_block_type:' + blockType)
+        const { actions } = payload
+        const hero = upgradePlayer(AUTHOR, value)
+        const sess = new PvESession(AUTHOR, await sha256(block.psig), hero)
+        await sess.replay(actions) // is async, picostore is sync, shit.
+        // console.log('Replay outputs', sess._rng.outputs)
+        const dst = clone(value) // TODO: ditch ICE, use clone
+        dst.seen = date
+        dst.state = 'idle' // Todo, remove HL prop-'state' from LL state.
+        dst.adventures++
+        const propsToCopy = [
+          'location',
+          'deaths',
+          'hp',
+          'experience',
+          'career',
+          'inventory',
+          'exhaustion',
+          'kills'
+        ]
+        for (const p of propsToCopy) dst[p] = sess.hero[p]
+        // console.log('Lowlevel updated', dst)
+        return dst
       }
-      return { ...state }
+      default:
+        throw new Error('unkown_block_type:' + blockType)
     }
   }
-}
 
-export function btok (b, length = -1) { // 'base64url' not supported in browser :'(
-  if (Buffer.isBuffer(b) && length > 0) {
-    b = b.subarray(0, Math.min(length, b.length))
+  /** @type {import('@telamon/picostore').ExpiresFunction} */
+  expiresAt (hero, latch) {
+    const time = hero.status === 'dead'
+      ? 3 * 60 * 60 * 1000 // 3 Hours post mortem
+      : 7 * 24 * 60 * 60 * 1000 // 1 Week while alive
+    return time + hero.seen
   }
-  return b.toString('hex')
-}
-
-export function ktob (s) {
-  if (typeof s !== 'string') throw new Error('Expected string')
-  return Buffer.from(s, 'hex')
 }
 
 /**
@@ -257,7 +224,7 @@ export async function boot (cb) {
     Buffer.isBuffer = function (b) { return b instanceof Buffer || b?._isBuffer }
   }
   console.log('boot() called, allocating memory')
-  const DB = new MemoryLevel('rant.lvl', {
+  const DB = new MemoryLevel('poh.lvl', {
     valueEncoding: 'buffer',
     keyEncoding: 'buffer'
   })
@@ -271,36 +238,6 @@ export async function boot (cb) {
 async function sha256 (buffer) {
   return toU8(await globalThis.crypto.subtle.digest('sha-256', buffer))
 }
-/* BUFFER UTILS: TODO import from pifofeedv8 */
-/** assert Uint8Array[length]
-  * @type {(a: Uint8Array, l?: number) => Uint8Array} */
-export const au8 = (a, l) => {
-  if (!(a instanceof Uint8Array) || (typeof l === 'number' && l > 0 && a.length !== l)) throw new Error('Uint8Array expected')
-  else return a
-}
-export const toHex = (buf, limit = 0) => Buffer.from(limit ? buf.slice(0, limit) : buf).toString('hex')
-export const fromHex = b => Buffer.from(b, 'hex') // hexToBytes
-const utf8Encoder = new globalThis.TextEncoder()
-const utf8Decoder = new globalThis.TextDecoder()
-export const s2b = s => utf8Encoder.encode(s)
-export const b2s = b => utf8Decoder.decode(b)
-export const cmp = (a, b, i = 0) => {
-  if (au8(a).length !== au8(b).length) return false
-  while (a[i] === b[i++]) if (i === a.length) return true
-  return false
-}
-export const cpy = (to, from, offset = 0) => { to.set(from, offset); return to }
-/** @returns {Uint8Array} */
-export function toU8 (o) {
-  if (o instanceof Uint8Array) return o
-  if (o instanceof ArrayBuffer) return new Uint8Array(o)
-  // node:Buffer to Uint8Array
-  if (!(o instanceof Uint8Array) && o?.buffer) return new Uint8Array(o.buffer, o.byteOffset, o.byteLength)
-  // if (typeof o === 'string' && /^[a-f0-9]+$/i.test(o)) return fromHex(o)
-  // if (typeof o === 'string') return s2b(o) // experimental / might regret
-  throw new Error('Uint8Array coercion failed')
-}
-/* End of bufer utils */
 
 export class PRNG {
   static MAX_ROUNDS = 32 // TODO: Should be configurable Hero.level + 20
@@ -1028,6 +965,7 @@ export function levelFromXp (totalXp) {
  * @returns {undefined|{ pwr: number, agl: number, wis: number, profession?: string, skills_added: string[], skills_consumed: string[] }} levelUp diff
  */
 export function levelUp (dna, hero) {
+  dna = toU8(dna)
   const { career, experience: xp } = hero
   const [lvl] = levelFromXp(xp)
   // const nextXP = xpToLevel(lvl + 1)
