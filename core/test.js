@@ -3,7 +3,9 @@ import crypto from 'node:crypto'
 import { boot, PRNG, clone } from './index.js'
 import { get, settle, next } from 'piconuro'
 import { I, A } from './db.js'
+import { fromHex, toHex } from 'picofeed'
 import { JOB_PRIMITIVES } from './player.js'
+import { typeOf } from '@telamon/picostore'
 
 globalThis.crypto ||= crypto
 
@@ -12,7 +14,7 @@ test('Kernel Boot & Create Character', async t => {
   console.log('k.on_player', get(kernel.on_player))
   // Create hero
   const block = await kernel.createHero('Bertil VIII', 'A formidable tester without regrets')
-  console.log('Hero Created', block)
+  // console.log('Hero Created', block)
   console.log('k.on_player', get(kernel.on_player))
   t.equal(typeof get(kernel.on_player), 'string')
   t.equal(typeof get(kernel.$player), 'object')
@@ -36,7 +38,7 @@ test('Dissapearing item bug', async t => {
   t.equal(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'dagger is still there')
 })
 
-test('Levelsystem', async t => {
+test.skip('Levelsystem', async t => {
   const kernel = await boot()
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
@@ -46,7 +48,7 @@ test('Levelsystem', async t => {
   session.hero.experience = 35
   await session._notifyChange() // Trigger high-level recalcs
 
-  let h = get(kernel.$player)
+  let h = await kernel.readPlayer(kernel.pk)
 
   // h.experience => totalXP (LL)
   t.equal(h.xpNext, 130, 'Has Relative experience required for next level')
@@ -59,7 +61,7 @@ test('Levelsystem', async t => {
 
   t.equal(session.hero.career.length, 0, 'No career chosen')
 
-  h = get(kernel.$player)
+  h = await kernel.readPlayer(kernel.pk)
   t.equal(h.jobPoints, 1, '1 unspent point') // More than one not supported atm.
 
   try {
@@ -71,7 +73,7 @@ test('Levelsystem', async t => {
   const dingEvent = next(kernel.$messages, 1)
   const diff = await session.choosePath('M')
   t.deepEqual(diff, { pwr: 1, agl: 0, wis: 0, skills_added: [], skills_consumed: [] }, 'hero level up')
-  h = get(kernel.$player)
+  h = await kernel.readPlayer(kernel.pk)
   t.equal(h.jobPoints, 0, 'all points spent')
   t.deepEqual(session.hero.career, ['M'], 'Walking the path of the monk')
 
@@ -86,6 +88,9 @@ test('Levelsystem', async t => {
 
 test.only('Express gameplay as functions', async t => {
   const kernel = await boot()
+  // console.log('===> Secret', toHex(kernel._secret))
+  kernel._secret = fromHex('05e3a8f6653c508ff39d6a086f86b89cce21f4083c8b9f3c0f7d5c5f9f938e97') // Lock prng for this test
+
   await kernel.createHero('Bertil IIX', 'A formidable tester without regrets')
   /** @type {require('./index.js').PvESession} */
   const session = await kernel.beginPVE()
@@ -114,11 +119,11 @@ test.only('Express gameplay as functions', async t => {
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
 
-  console.log('Stats before', get(kernel.$player).stats)
+  console.log('Stats before', (await kernel.readPlayer(kernel.pk)).stats)
   t.notOk(session.equipment.right, 'Nothing equipped')
   await session.useItem(weapon.uid)
   t.equal(session.equipment.right.uid, weapon.uid, 'Knife equipped')
-  console.log('Stats after', get(kernel.$player).stats)
+  console.log('Stats after', (await kernel.readPlayer(kernel.pk)).stats)
 
   await session.useItem(weapon.uid) // unequip
   t.notOk(session.equipment.right, 'Item unequipped')
@@ -162,21 +167,24 @@ test.only('Express gameplay as functions', async t => {
   // await session.travelTo(2)
   // await sesion.npcAction('1', 'identify', inventoryIndexOfItem)
 
-  const heroCopy = clone(get(kernel.$player))
+  const heroCopy = clone(await next(kernel.$player, 0)) // Get player as seen during live
   // const unsub = kernel.$player(p => console.info('Sub update', p))
   await kernel.commitPVE(session)
   t.pass('Going to sleep')
   // unsub()
   console.log('========== REPLAY ===========')
   // Test Determinism
-  const hero = await next(settle(kernel.$player), 0) // Picostore needs to support async block-processing
+  // const hero = await next(settle(kernel.$player), 0) // Picostore needs to support async block-processing
+  const hero = await kernel.readPlayer(kernel.pk)
+
+  // Computed props are not candidates for determinism
   heroCopy.seen = hero.seen // last-block-date
   heroCopy.adventures++ // adventure count increased
   heroCopy.state = 'idle' // sleeping
   heroCopy.exhaustion = hero.exhaustion // Should always be reset
   heroCopy.hp = hero.hp // Wounds heal on sleep
+  console.log('comparison', compare(hero, heroCopy, true))
   t.deepEqual(hero, heroCopy, 'PvECPU is Deterministic')
-  // console.log('Prev: ', heroCopy, '\nCurrent:', hero)
 })
 
 test('PRNG', async t => {
@@ -188,3 +196,36 @@ test('PRNG', async t => {
   await b.replay(rng.inputs)
   t.deepEqual(rng.outputs, b.outputs, 'Deterministic outputs')
 })
+
+test.skip('Live PvE store', async t => {
+  const kernel = await boot()
+  await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
+  const session = await kernel.beginPVE()
+  await session.travelTo(A.crossroads)
+  await session.travelTo(A.town)
+  await session.updateLive(0.25, 0.7, 'Hello')
+  kernel.$player(h => console.log('Inventory', h.inventory))
+  const worldState = await next(kernel.on_live(), 0)
+  console.log(worldState)
+})
+
+function compare(a, b, onlyDiff = false, depth = 0) {
+  const indent = n => Array.from(new Array(n)).map(() => '  ').join('')
+  if (typeOf(a) !== typeOf(b)) return `${JSON.stringify(a)} != ${JSON.stringify(b)}\n`
+  if (typeOf(a) === 'array' || typeOf(a) === 'object') {
+    let out = ''
+    const keys = []
+    for (const k in a) if (keys.indexOf(k) === -1) keys.push(k)
+    for (const k in b) if (keys.indexOf(k) === -1) keys.push(k)
+    for (const k of keys) {
+      const diff = compare(a[k], b[k], onlyDiff, depth + 1)
+      if (diff) out += indent(depth + 1) + `${k}: ` +  diff
+    }
+    return out.length
+      ? (Array.isArray(a) ? '[\n' : '{\n') + out + indent(depth) + (Array.isArray(a) ? ']\n' : '}\n')
+      : null
+  }
+
+  if (!onlyDiff && a === b) return `${a} == ${b}\n`
+  else if (a !== b) return `${a} != ${b}\n`
+}

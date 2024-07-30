@@ -1,6 +1,7 @@
 import { Hero, JOB_PRIMITIVES } from './player.js'
 import { SimpleKernel, Memory } from 'picostack'
-import { toHex, toU8, cmp } from 'picofeed'
+import { Modem56 } from '../../picostack/modem56.js'
+import { Feed, toHex, toU8, cmp, s2b, au8, getPublicKey, hexdump } from 'picofeed'
 // import { BrowserLevel } from 'browser-level'
 import { MemoryLevel } from 'memory-level'
 import { randomSeedNumber, bytesNeeded } from 'pure-random-number'
@@ -11,16 +12,29 @@ import { ITEMS, I, AREAS, DUNGEONS, E } from './db.js'
 import { mapOverlap, Binorg, TWOBYTER, roundByte, insertLifeMarker, downShift, upShift } from './binorg.js'
 export * as DB from './db.js'
 const MEM_HERO = 'H'
+const MEM_LIVE = 'L'
+
+/** @typedef {import('@telamon/picostore').ExpiresFunction} ExpiresFunction */
+/** @typedef {import('@telamon/picostore').ComputeFunction} ComputeFunction */
+/** @typedef {import('picofeed').SecretBin} SecretBin */
+/** @typedef {import('picofeed').PublicBin} PublicBin */
+/** @typedef {import('picofeed').PublicKey} PublicKey */
+/** @typedef {import('picostack/simple-kernel.js').PublicHex} PublicHex */
+
 export class Kernel extends SimpleKernel {
   /** @type {PvESession} */
   _pve = null
   _pve_hero = write()
   _msg_line = write({ type: 'none' })
 
+  #swarm = null
+
   constructor (db) {
     super(db)
+    this.store.repo.allowDetached = true
     // this.store.register(HeroCPU(() => this.pk))
     this.store.register(MEM_HERO, HeroMemory)
+    this.store.register(MEM_LIVE, LiveMemory)
   }
 
   get session () { return this._pve }
@@ -30,15 +44,28 @@ export class Kernel extends SimpleKernel {
   get $player () {
     const $blockState = mute(
       s => this.store.on(MEM_HERO, s),
-      (players) => {
-        if (!this.pk) return
-        const player = players[this.pk]
-        if (!player) return // Create a hero first
-        return upgradePlayer(this.pk, player)
-      }
+      async () => this.readPlayer(this.pk, true)
     )
     const c = combine($blockState, this._pve_hero[0])
     return mute(c, ([block, pve]) => pve || block) // prefer virtual PvE-state, remember to clean on commit
+  }
+
+  /**
+   * Reads player from low level block state
+   * by public key
+   * @param {PublicHex} pk
+   * @param {boolean} silent return undefined instead of throw
+   * @return {CharacteSheet|undefined}
+   */
+  async readPlayer (pk, silent = false) {
+    if (!pk) if (!silent) throw new Error('AUTHOR missing'); else return
+    const heroMem = this.store.roots[MEM_HERO]
+    let chain = await heroMem.lookup(pk)
+    if (!chain) if (!silent) throw new Error('Could not resolve key -> Chain<Hero>'); else return
+    chain = toHex(chain)
+    if (!(await heroMem.hasState(chain))) if (!silent) throw new Error('Unknown Player'); else return
+    const player = await heroMem.readState(chain)
+    return upgradePlayer(pk, player)
   }
 
   // godot cannot handle '$' method names nor iterate JS-Arrays
@@ -56,13 +83,25 @@ export class Kernel extends SimpleKernel {
    * @param {string} memo Shows on death/tombstone
    */
   async createHero (name, memo) {
-    return this.createBlock(MEM_HERO, { type: 'spawn_player', name, memo })
+    return this.createBlock(MEM_HERO, { type: 'spawn_player', name, memo }, new Feed())
   }
 
   async beginPVE () {
-    const psig = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
-    const cs = get(this.$player)
-    this._pve = new PvESession(this.pk, await sha256(psig), cs, this._pve_hero[1], this._msg_line[1])
+    const chain = await this.store.roots[MEM_HERO].lookup(this.pk)
+    const branch = await this.store.readBranch(chain)
+    const psig = branch.last.sig
+    // console.log("beginPVE last sig", hexdump(psig))
+    // const psig = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
+
+    const cs = await this.readPlayer(this.pk)
+    this._pve = new PvESession(
+      this.pk,
+      await sha256(psig),
+      cs,
+      this._pve_hero[1],
+      this._msg_line[1],
+      async payload => this.liveStore.update(payload, this._secret)
+    )
     return this._pve
   }
 
@@ -78,9 +117,12 @@ export class Kernel extends SimpleKernel {
     //   await this.feed()
     // } catch (err) { debugger }
     const h = session.hero
+    /*
     const llh = await this.store.roots[MEM_HERO].readState(this.pk)
     if (!llh) throw new Error('No such hero')
     const p = upgradePlayer(this.pk, llh)
+      */
+    const p = await this.readPlayer(this.pk)
     const diff = {
       days: 1,
       kills: h.kills - p.kills,
@@ -91,14 +133,50 @@ export class Kernel extends SimpleKernel {
       agl: h.stats.agl - p.stats.agl,
       wis: h.stats.wis - p.stats.wis,
       experience: h.experience - p.experience,
-      refresh_at: nextEntropyRefreshAt(h.spawned, h.seen)
+      refresh_at: nextEntropyRefreshAt(h.spawned, Date.now())
     }
 
     this._pve = null
     this._pve_hero[1](null) // Flush out session, fall back on store
     // console.log('Precommit outputs', session._rng.outputs)
-    const block = await this.createBlock(MEM_HERO, { type: 'pve', actions: session.stack })
+
+    const chain = await this.store.roots[MEM_HERO].lookup(this.pk)
+    const branch = await this.store.readBranch(chain)
+    const block = await this.createBlock(MEM_HERO, { type: 'pve', actions: session.stack }, branch)
     return [diff, block]
+  }
+
+  async beginSwarm (Hyperswarm) {
+    const topic = 'poh:v0/global'
+    const m56 = new Modem56(Hyperswarm)
+    const leave = await m56.join(topic, this.spawnWire.bind(this))
+    return leave
+  }
+
+  /** @type {LiveMemory} */
+  get liveStore () { return this.store.roots[MEM_LIVE] }
+
+  on_live () {
+    return mute(s => this.liveStore.sub(s), async lmem => {
+      const out = []
+      for (const chain in lmem) {
+        const v = lmem[chain]
+        const hero = await this.store.roots[MEM_HERO].readState(v.AUTHOR)
+        if (hero.spawned === -1) continue // unknown hero
+        out.push({
+          key: v.AUTHOR,
+          name: hero.name,
+          state: hero.state,
+          spawned: hero.spawned, // Be able to display death counter
+          live: v.date,
+          location: v.location,
+          x: v.x,
+          y: v.y,
+          says: v.says
+        })
+      }
+      return out
+    })
   }
 }
 
@@ -110,9 +188,25 @@ function nextEntropyRefreshAt (spawned, seen) {
 // PvE Gameplay
 
 /**
+ * @typedef {{
+ *  dead: boolean, spawned: number, seen: number, adventures: number,
+ *  name: string, memo: string, state: string, location: number,
+ *  kills: number, escampes: number, deaths: number, hp: number,
+ *  experience: number, career: string[], inventory: Array<Item|UniqueItem>
+ * }} LLHero
+ *
+ * @typedef { LLHero & {
+ *    stats: { pwr: number, agl: number, wis: number, atk: number, def: number, wis: number },
+ *    exhaustion: number, xpNext: number, xpRel: number, jobPoints: number, lvl: number,
+ *    pwr: number, agl: number, wis: number, profession: string, gender: string,
+ *    path: string[], skills: string[], life: number, maxhp: number,
+ *    equipment: { left: UniqueItem?, right: UniqueItem?, head: UniqueItem, body: UniqueItem, feet: UniqueItem }
+ * }} HLHero
+ *
  * PvE Reducer/Slicer/Indexer
  */
 class HeroMemory extends Memory {
+  /** @type {LLHero} */
   initialValue = {
     dead: false, // TODO: probably not needed
     spawned: -1,
@@ -134,10 +228,11 @@ class HeroMemory extends Memory {
     ]
   }
 
-  idOf ({ AUTHOR }) { return AUTHOR }
-  /** @type {import('@telamon/picostore').ComputeFunction} */
+  idOf ({ CHAIN }) { return CHAIN }
+
+  /** @type {ComputeFunction} */
   async compute (value, ctx) {
-    const { payload, reject, date, block, AUTHOR, postpone } = ctx
+    const { payload, reject, date, block, AUTHOR, postpone, index } = ctx
     const { type: blockType } = payload
 
     if (date > Date.now()) return reject('Block from future') // postpone(date - Date.now()) // TODO: not really implemented, but usecase, use relative/absolute time?
@@ -148,7 +243,8 @@ class HeroMemory extends Memory {
         if (value.spawned !== -1) return reject('Player already spawned')
         const { name, memo } = payload
         if (!name || name === '') return reject('Invalid Hero name')
-        // console.log('new hero discovered', AUTHOR, name)
+        console.log('new hero discovered', AUTHOR, name)
+        index(AUTHOR) // Attempting to switch repo into CHAIN mode, create AUTHOR -> Chain<Hero> ptr manually
         return { ...value, spawned: date, name, memo }
       }
 
@@ -159,6 +255,7 @@ class HeroMemory extends Memory {
 
         const { actions } = payload
         const hero = upgradePlayer(AUTHOR, value)
+        // console.log("block.psig", hexdump(block.psig))
         const sess = new PvESession(AUTHOR, await sha256(block.psig), hero)
         await sess.replay(actions) // is async, picostore is sync, shit.
         // console.log('Replay outputs', sess._rng.outputs)
@@ -185,7 +282,7 @@ class HeroMemory extends Memory {
     }
   }
 
-  /** @type {import('@telamon/picostore').ExpiresFunction} */
+  /** @type {ExpiresFunction} */
   expiresAt (hero, latch) {
     const time = hero.status === 'dead'
       ? 3 * 60 * 60 * 1000 // 3 Hours post mortem
@@ -194,13 +291,44 @@ class HeroMemory extends Memory {
   }
 }
 
+/** A Temporary memory that is written to during live session.
+ * and deleted when session is deleted
+ */
+class LiveMemory extends Memory {
+  /** @typedef { location: number, x: number, y: number, says: string|undefined, date: number } LivePayload */
+  initialValue = { location: 0, x: 0, y: 0, says: null, date: -1 }
+  idOf ({ CHAIN }) { return CHAIN }
+
+  /** @type {ComputeFunction} */
+  async compute (value, ctx) {
+    const { date, block, index, payload, reject, AUTHOR } = ctx
+    if (block.genesis) index(AUTHOR) // Make a ptr to AUTHOR -> Chain<LiveMem>
+    return { ...value, ...payload, date, AUTHOR } // TODO: validation
+  }
+
+  /**
+   * @param {any} payload
+   * @param {SecretBin} secret
+   */
+  async update (payload, secret) {
+    const chainPtr = await this.lookup(getPublicKey(secret))
+    await this.createBlock(chainPtr, payload, secret)
+  }
+
+  expiresAt ({ date }) {
+    return date + 3 * 60 * 10000 // 3 minutes
+  }
+}
+
 /**
  * Converts low-level  player-state into
  * high-level character sheet
  * @param {Bufer|Uint8Buffer} pk Public Key
- * @param {any} Lowlevel state
+ * @param {LLHero} state Lowlevel state
+ * @return {HLHero}
  */
 function upgradePlayer (pk, state) {
+  // console.log('UpgradePlayer: ', pk)
   const characterSheet = {
     ...state,
     exhaustion: 0,
@@ -217,12 +345,7 @@ function upgradePlayer (pk, state) {
  * TODO: move function to bootloader.js
  * avoid setting globalThis.K in production builds
  */
-export async function boot (cb) {
-  // Wow
-  if (Buffer.isBuffer.toString() === 'function isBuffer(b) {\n  return b instanceof Buffer;\n}') {
-    console.warn('Applying unholy monkeypatch of the year, TODO: release Picofeed 8.x upgrade Picorepo and PicoStore')
-    Buffer.isBuffer = function (b) { return b instanceof Buffer || b?._isBuffer }
-  }
+export async function boot (Hyperswarm, cb) {
   console.log('boot() called, allocating memory')
   const DB = new MemoryLevel('poh.lvl', {
     valueEncoding: 'buffer',
@@ -231,12 +354,13 @@ export async function boot (cb) {
   const kernel = new Kernel(DB)
   await kernel.boot()
   globalThis.K = kernel
+  if (Hyperswarm) await kernel.beginSwarm(Hyperswarm)
   if (typeof cb === 'function') cb(kernel)
   return kernel
 }
 
 async function sha256 (buffer) {
-  return toU8(await globalThis.crypto.subtle.digest('sha-256', buffer))
+  return toU8(await globalThis.crypto.subtle.digest('sha-256', au8(buffer)))
 }
 
 export class PRNG {
@@ -349,6 +473,9 @@ class PvESession {
   stack = []
   #counter_items_spawned = 0
   #battle = null
+  /** @typedef {(payload: any) => Promise<void>} UpdateLiveCallback
+    * @type {UpdateLiveCallback} */
+  #updateLive
 
   get location () { return this.hero.location }
   get state () { return this.hero.state }
@@ -365,12 +492,22 @@ class PvESession {
 
   get stats () { return computeStats(this.hero) }
 
-  constructor (author, seed, hero, onChange = () => {}, sendMessage = () => {}) {
+  /** @constructor
+   *  @param {PublicBin} author
+   *  @param {Uint8Array} seed
+   *  @param {LLHero} hero Lowlevel Hero
+   *  @param {(hero: any) => void} [onChange] Notifies $player neuron
+   *  @param {({ type: string, payload: any }) => void} [sendMessage] Forwarded to Godot/Frontend
+   *  @param {UpdateLiveCallback} [updateLive] Generates LiveMem-blocks
+   */
+  constructor (author, seed, hero, onChange = () => {}, sendMessage = () => {}, updateLive = async () => {}) {
+    // console.log('\n==== PvE SEED ====', hexdump(seed))
     this.author = author
     this.hero = clone(hero)
     this._rng = new PRNG(seed)
     this.hero.state = 'adventure'
     this._sendMessage = sendMessage
+    this.#updateLive = updateLive
 
     this._notifyChange = () => onChange({
       ...clone({
@@ -416,6 +553,11 @@ class PvESession {
     this._push({ type: 'travel', areaId, from: this.location })
     this.hero.location = areaId
     this._notifyChange()
+    await this.#updateLive({ location: areaId, x: 0.5, y: 0.5 })
+  }
+
+  async updateLive (x = 0, y = 0, says = null) {
+    return await this.#updateLive({ location: this.location, x, y, says })
   }
 
   async explore (dungeonId) {
@@ -722,6 +864,7 @@ class PvESession {
     const id = typeof target === 'string'
       ? this.inventory.find(i => i.uid === target)?.id
       : Number.isInteger(target) ? target : target.id
+    if (typeof id === 'undefined') debugger
     if (typeof id === 'undefined') throw new Error(`Could not resolve to item: ${JSON.stringify(target)}`)
     if (!(id in ITEMS)) throw new Error(`ItemSpec Not Found ${id}`)
     return ITEMS[id]
@@ -822,6 +965,9 @@ class PvESession {
           break
         case 'use':
           await this.useItem(action.item)
+          break
+        case 'path':
+          await this.choosePath(action.job)
           break
         default:
           throw new Error('Unknown PvEAction: ' + action.type)
@@ -960,9 +1106,10 @@ export function levelFromXp (totalXp) {
 }
 
 /**
- * @param {Uint8Array} dna
- * @param {Hero} hero
- * @returns {undefined|{ pwr: number, agl: number, wis: number, profession?: string, skills_added: string[], skills_consumed: string[] }} levelUp diff
+ * @typedef {{ pwr: number, agl: number, wis: number, profession?: string, skills_added: string[], skills_consumed: string[] }} LevelupDiff
+ * @param {PublicKey} dna
+ * @param {LLHero} hero
+ * @returns {undefined|LevelupDiff} levelUp diff
  */
 export function levelUp (dna, hero) {
   dna = toU8(dna)
