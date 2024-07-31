@@ -109,7 +109,7 @@ defConsumable(84, 'Smokebomb', 40, 'When you have to, you have to', fxEscape(6, 
 
 // defineItem(5, '')
 // equipmentItem(7, 'The legendary sword de')
-defineItem(6, 'Hypercore', STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
+defineItem(6, 'Hypercore',0 , STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
 
 // TODO: rewrite to defEq(id, name, price, slot, description, stats= {})
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
@@ -397,13 +397,13 @@ DUNGEONS[0] = {
     {
       type: 'monster',
       name: 'Lost Spirit',
-      chance: 2,
-      baseStats: [3, 2, 8],
+      chance: 3,
+      baseStats: [3, 5, 9],
       lvl: { min: 5, max: 8 },
       hp: 9,
       xp: 20,
       loot: [
-        { id: I.gold, chance: 4, qty: 20 },
+        { id: I.gold, chance: 5, qty: 20 },
         { id: I.white_book, chance: 2, qty: 1 },
         { id: I.intricate_mantle, chance: 1, qty: 1 }
       ],
@@ -424,7 +424,7 @@ DUNGEONS[0] = {
         { id: I.plate_mail, chance: 1, qty: 1 },
         { id: I.warhammer, chance: 1, qty: 1 },
         { id: I.red_potion, chance: 3, qty: 2 },
-        { id: I.hyper_core, chance: 9, qty: 1 }
+        { id: I.hypercore, chance: 9, qty: 1 }
         // { id: I.holy_replica, chance: Infinity, qty: 1 },
         // { id: I.hyper_modem56, chance: Infinity, qty: 5 }
       ],

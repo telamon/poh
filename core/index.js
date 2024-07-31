@@ -16,6 +16,7 @@ const MEM_LIVE = 'L'
 
 /** @typedef {import('@telamon/picostore').ExpiresFunction} ExpiresFunction */
 /** @typedef {import('@telamon/picostore').ComputeFunction} ComputeFunction */
+/** @typedef {import('@telamon/picostore').BlockID} BlockID */
 /** @typedef {import('picofeed').SecretBin} SecretBin */
 /** @typedef {import('picofeed').PublicBin} PublicBin */
 /** @typedef {import('picofeed').PublicKey} PublicKey */
@@ -26,8 +27,11 @@ export class Kernel extends SimpleKernel {
   _pve = null
   _pve_hero = write()
   _msg_line = write({ type: 'none' })
+  /** @type {BlockID} */
+  #selectedChain = null
 
-  #swarm = null
+  /** @type {Modem56} */
+  #m56 = null
 
   constructor (db) {
     super(db)
@@ -44,26 +48,29 @@ export class Kernel extends SimpleKernel {
   get $player () {
     const $blockState = mute(
       s => this.store.on(MEM_HERO, s),
-      async () => this.readPlayer(this.pk, true)
+      players => {
+        if (!this.#selectedChain) return
+        const player = players[toHex(this.#selectedChain)]
+        if (!player) return // Create one first
+        return upgradePlayer(this.pk, player)
+      }
     )
     const c = combine($blockState, this._pve_hero[0])
     return mute(c, ([block, pve]) => pve || block) // prefer virtual PvE-state, remember to clean on commit
   }
 
   /**
-   * Reads player from low level block state
-   * by public key
+   * Reads arbitrary player from block-store by public key
    * @param {PublicHex} pk
-   * @param {boolean} silent return undefined instead of throw
-   * @return {CharacteSheet|undefined}
+   * @return {Promise<HLHero>}
    */
-  async readPlayer (pk, silent = false) {
-    if (!pk) if (!silent) throw new Error('AUTHOR missing'); else return
+  async readPlayer (pk) {
+    if (!pk) throw new Error('AUTHOR missing')
     const heroMem = this.store.roots[MEM_HERO]
     let chain = await heroMem.lookup(pk)
-    if (!chain) if (!silent) throw new Error('Could not resolve key -> Chain<Hero>'); else return
+    if (!chain) throw new Error('Could not resolve key -> Chain<Hero>')
     chain = toHex(chain)
-    if (!(await heroMem.hasState(chain))) if (!silent) throw new Error('Unknown Player'); else return
+    if (!(await heroMem.hasState(chain))) throw new Error('Unknown Player')
     const player = await heroMem.readState(chain)
     return upgradePlayer(pk, player)
   }
@@ -83,7 +90,9 @@ export class Kernel extends SimpleKernel {
    * @param {string} memo Shows on death/tombstone
    */
   async createHero (name, memo) {
-    return this.createBlock(MEM_HERO, { type: 'spawn_player', name, memo }, new Feed())
+    const block = await this.createBlock(MEM_HERO, { type: 'spawn_player', name, memo }, new Feed())
+    this.#selectedChain = await this.store.roots[MEM_HERO].lookup(this.pk)
+    return block
   }
 
   async beginPVE () {
@@ -93,7 +102,8 @@ export class Kernel extends SimpleKernel {
     // console.log("beginPVE last sig", hexdump(psig))
     // const psig = await this.repo._getHeadPtr(this.pk) // || await this.feed(1).last.sig.toString('hex')
 
-    const cs = await this.readPlayer(this.pk)
+    const cs = get(this.$player)
+    if (cs.dead) throw new Error('Hero is Dead')
     this._pve = new PvESession(
       this.pk,
       await sha256(psig),
@@ -148,8 +158,8 @@ export class Kernel extends SimpleKernel {
 
   async beginSwarm (Hyperswarm) {
     const topic = 'poh:v0/global'
-    const m56 = new Modem56(Hyperswarm)
-    const leave = await m56.join(topic, this.spawnWire.bind(this))
+    this.#m56 = new Modem56(Hyperswarm)
+    const leave = await this.#m56.join(topic, this.spawnWire.bind(this), true)
     return leave
   }
 
@@ -191,7 +201,7 @@ function nextEntropyRefreshAt (spawned, seen) {
  * @typedef {{
  *  dead: boolean, spawned: number, seen: number, adventures: number,
  *  name: string, memo: string, state: string, location: number,
- *  kills: number, escampes: number, deaths: number, hp: number,
+ *  kills: number, escapes: number, deaths: number, hp: number,
  *  experience: number, career: string[], inventory: Array<Item|UniqueItem>
  * }} LLHero
  *
@@ -243,7 +253,7 @@ class HeroMemory extends Memory {
         if (value.spawned !== -1) return reject('Player already spawned')
         const { name, memo } = payload
         if (!name || name === '') return reject('Invalid Hero name')
-        console.log('new hero discovered', AUTHOR, name)
+        // console.log('new hero discovered', AUTHOR, name)
         index(AUTHOR) // Attempting to switch repo into CHAIN mode, create AUTHOR -> Chain<Hero> ptr manually
         return { ...value, spawned: date, name, memo }
       }
@@ -252,6 +262,7 @@ class HeroMemory extends Memory {
         if (block.genesis) return reject("It's dangerous to adventure without parent")
         const refreshAt = nextEntropyRefreshAt(value.spawned, value.seen)
         if (date < refreshAt) return reject('Attempted to commit too soon')
+        if (value.dead) return reject('Hero is Dead')
 
         const { actions } = payload
         const hero = upgradePlayer(AUTHOR, value)
@@ -271,7 +282,8 @@ class HeroMemory extends Memory {
           'career',
           'inventory',
           'exhaustion',
-          'kills'
+          'kills',
+          'dead'
         ]
         for (const p of propsToCopy) dst[p] = sess.hero[p]
         // console.log('Lowlevel updated', dst)
@@ -371,11 +383,13 @@ export class PRNG {
   offset = 0
   inputs = []
   outputs = []
+  #onexhaust = () => {}
 
   get consumed () { return this.rounds * 32 + this.offset }
 
-  constructor (seed) {
+  constructor (seed, onexhaust) {
     this._base = this.seed = toU8(seed)
+    this.#onexhaust = onexhaust
   }
 
   async replay (inputs) {
@@ -406,7 +420,10 @@ export class PRNG {
 
   async _next () {
     this.seed = await sha256(this.seed)
-    if (++this.rounds > PRNG.MAX_ROUNDS) throw new Error('Commit to Refresh Entropy')
+    if (++this.rounds > PRNG.MAX_ROUNDS) {
+      if (typeof this.#onexhaust === 'function') this.#onexhaust()
+      throw new Error('Commit to Refresh Entropy')
+    }
     this.offset = 0
   }
 
@@ -480,7 +497,7 @@ class PvESession {
   get location () { return this.hero.location }
   get state () { return this.hero.state }
   get area () { return AREAS[this.location] }
-  /** @type {Array} */
+  /** @type {Array<Item|UniqueItem>} */
   get inventory () { return this.hero.inventory }
   /** @type {number} */
   get balance () { // gold
@@ -504,7 +521,7 @@ class PvESession {
     // console.log('\n==== PvE SEED ====', hexdump(seed))
     this.author = author
     this.hero = clone(hero)
-    this._rng = new PRNG(seed)
+    this._rng = new PRNG(seed, () => this.#rip('Died of exhaustion'))
     this.hero.state = 'adventure'
     this._sendMessage = sendMessage
     this.#updateLive = updateLive
@@ -561,6 +578,7 @@ class PvESession {
   }
 
   async explore (dungeonId) {
+    if (this.state != 'adventure') throw new Error('Cannot explore while busy')
     const connected = this.area.dungeons.some(d => d === dungeonId)
     if (!connected) throw new Error(`Dungeon ${dungeonId} does not exist in ${this.area.id}`)
     const dungeon = DUNGEONS[dungeonId]
@@ -685,10 +703,13 @@ class PvESession {
       this.addInventory(out.loot, true)
       hero.state = 'adventure'
     } else if (type === 'defeat') {
+      await this.#rip('killed by ' + spawn.name)
+      /*
       hero.hp = 10
       hero.deaths++
       hero.location = 0
       hero.state = 'adventure'
+      */
     } else if (type === 'escaped' || type === 'left_behind') {
       if (lastHit.own) {
         hero.escapes++
@@ -719,10 +740,17 @@ class PvESession {
     try {
       ding = this._levelUp()
     } catch (e) {
-      console.warn('squelching assumed career length error', e)
+      // console.warn('squelching assumed career length error', e)
     }
     if (!ding) this._notifyChange()
     return out
+  }
+
+  async #rip(reason) {
+    this.hero.dead = true
+    this.hero.state = 'rip'
+    console.info('__RIP__', reason)
+    // TODO: AUTO COMMIT DEATH | KILL SESSION (Rollback day) | INC DEATHS
   }
 
   /**
@@ -864,7 +892,6 @@ class PvESession {
     const id = typeof target === 'string'
       ? this.inventory.find(i => i.uid === target)?.id
       : Number.isInteger(target) ? target : target.id
-    if (typeof id === 'undefined') debugger
     if (typeof id === 'undefined') throw new Error(`Could not resolve to item: ${JSON.stringify(target)}`)
     if (!(id in ITEMS)) throw new Error(`ItemSpec Not Found ${id}`)
     return ITEMS[id]
@@ -890,7 +917,7 @@ class PvESession {
     seed[6] = (ctr >>> 8) & 0xff
     seed[7] = ctr & 0xff
     instance.uid = toHex(seed)
-    console.info('ItemSpawned', instance.uid, instance)
+    // console.info('ItemSpawned', instance.uid, instance)
     // TODO: decide wether or not we want wish to have schrödingers unindentified axe
     return instance
   }

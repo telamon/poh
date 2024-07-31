@@ -1,10 +1,10 @@
 import test from 'tape'
 import crypto from 'node:crypto'
 import { boot, PRNG, clone } from './index.js'
-import { get, settle, next } from 'piconuro'
+import { get, next } from 'piconuro'
 import { I, A } from './db.js'
-import { fromHex, toHex } from 'picofeed'
-import { JOB_PRIMITIVES } from './player.js'
+import { fromHex } from 'picofeed'
+// import { JOB_PRIMITIVES } from './player.js'
 import { typeOf } from '@telamon/picostore'
 
 globalThis.crypto ||= crypto
@@ -48,7 +48,7 @@ test.skip('Levelsystem', async t => {
   session.hero.experience = 35
   await session._notifyChange() // Trigger high-level recalcs
 
-  let h = await kernel.readPlayer(kernel.pk)
+  let h = get(kernel.$player)
 
   // h.experience => totalXP (LL)
   t.equal(h.xpNext, 130, 'Has Relative experience required for next level')
@@ -61,7 +61,7 @@ test.skip('Levelsystem', async t => {
 
   t.equal(session.hero.career.length, 0, 'No career chosen')
 
-  h = await kernel.readPlayer(kernel.pk)
+  h = get(kernel.$player)
   t.equal(h.jobPoints, 1, '1 unspent point') // More than one not supported atm.
 
   try {
@@ -73,7 +73,7 @@ test.skip('Levelsystem', async t => {
   const dingEvent = next(kernel.$messages, 1)
   const diff = await session.choosePath('M')
   t.deepEqual(diff, { pwr: 1, agl: 0, wis: 0, skills_added: [], skills_consumed: [] }, 'hero level up')
-  h = await kernel.readPlayer(kernel.pk)
+  h = get(kernel.$player)
   t.equal(h.jobPoints, 0, 'all points spent')
   t.deepEqual(session.hero.career, ['M'], 'Walking the path of the monk')
 
@@ -86,7 +86,7 @@ test.skip('Levelsystem', async t => {
   // console.log(l)
 })
 
-test.only('Express gameplay as functions', async t => {
+test('Express gameplay as functions', async t => {
   const kernel = await boot()
   // console.log('===> Secret', toHex(kernel._secret))
   kernel._secret = fromHex('05e3a8f6653c508ff39d6a086f86b89cce21f4083c8b9f3c0f7d5c5f9f938e97') // Lock prng for this test
@@ -119,11 +119,11 @@ test.only('Express gameplay as functions', async t => {
   food = session.inventory.find(i => i.id === I.ration)
   t.equal(food.qty, 15, 'sold')
 
-  console.log('Stats before', (await kernel.readPlayer(kernel.pk)).stats)
+  console.log('Stats before', get(kernel.$player).stats)
   t.notOk(session.equipment.right, 'Nothing equipped')
   await session.useItem(weapon.uid)
   t.equal(session.equipment.right.uid, weapon.uid, 'Knife equipped')
-  console.log('Stats after', (await kernel.readPlayer(kernel.pk)).stats)
+  console.log('Stats after', get(kernel.$player).stats)
 
   await session.useItem(weapon.uid) // unequip
   t.notOk(session.equipment.right, 'Item unequipped')
@@ -167,15 +167,14 @@ test.only('Express gameplay as functions', async t => {
   // await session.travelTo(2)
   // await sesion.npcAction('1', 'identify', inventoryIndexOfItem)
 
-  const heroCopy = clone(await next(kernel.$player, 0)) // Get player as seen during live
+  const heroCopy = clone(get(kernel.$player)) // Get player as seen during live
   // const unsub = kernel.$player(p => console.info('Sub update', p))
-  await kernel.commitPVE(session)
+  await kernel.commitPVE()
   t.pass('Going to sleep')
   // unsub()
   console.log('========== REPLAY ===========')
   // Test Determinism
-  // const hero = await next(settle(kernel.$player), 0) // Picostore needs to support async block-processing
-  const hero = await kernel.readPlayer(kernel.pk)
+  const hero = await kernel.readPlayer(kernel.pk) // Safe to read hero because sleeping in blockstore
 
   // Computed props are not candidates for determinism
   heroCopy.seen = hero.seen // last-block-date
@@ -209,7 +208,7 @@ test.skip('Live PvE store', async t => {
   console.log(worldState)
 })
 
-function compare(a, b, onlyDiff = false, depth = 0) {
+function compare (a, b, onlyDiff = false, depth = 0) {
   const indent = n => Array.from(new Array(n)).map(() => '  ').join('')
   if (typeOf(a) !== typeOf(b)) return `${JSON.stringify(a)} != ${JSON.stringify(b)}\n`
   if (typeOf(a) === 'array' || typeOf(a) === 'object') {
@@ -219,7 +218,7 @@ function compare(a, b, onlyDiff = false, depth = 0) {
     for (const k in b) if (keys.indexOf(k) === -1) keys.push(k)
     for (const k of keys) {
       const diff = compare(a[k], b[k], onlyDiff, depth + 1)
-      if (diff) out += indent(depth + 1) + `${k}: ` +  diff
+      if (diff) out += indent(depth + 1) + `${k}: ` + diff
     }
     return out.length
       ? (Array.isArray(a) ? '[\n' : '{\n') + out + indent(depth) + (Array.isArray(a) ? ']\n' : '}\n')
