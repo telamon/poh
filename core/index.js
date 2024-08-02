@@ -84,6 +84,10 @@ export class Kernel extends SimpleKernel {
     return mute(this.$messages, value => JSON.stringify(value))
   }
 
+  get on_live_events () {
+    return mute(this.$liveEvents, value => JSON.stringify(value))
+  }
+
   /**
    * Spawns a new hero
    * @param {string} name Name of Hero
@@ -166,14 +170,15 @@ export class Kernel extends SimpleKernel {
   /** @type {LiveMemory} */
   get liveStore () { return this.store.roots[MEM_LIVE] }
 
-  on_live () {
+  get $liveEvents () {
     return mute(s => this.liveStore.sub(s), async lmem => {
       const out = []
       for (const chain in lmem) {
         const v = lmem[chain]
-        const hero = await this.store.roots[MEM_HERO].readState(v.AUTHOR)
-        if (hero.spawned === -1) continue // unknown hero
+        const hero = await this.readPlayer(v.AUTHOR).catch(() => null)
+        if (!hero) return
         out.push({
+          liveChain: chain,
           key: v.AUTHOR,
           name: hero.name,
           state: hero.state,
@@ -218,6 +223,7 @@ function nextEntropyRefreshAt (spawned, seen) {
 class HeroMemory extends Memory {
   /** @type {LLHero} */
   initialValue = {
+    AUTHOR: null,
     dead: false, // TODO: probably not needed
     spawned: -1,
     seen: -1,
@@ -255,7 +261,7 @@ class HeroMemory extends Memory {
         if (!name || name === '') return reject('Invalid Hero name')
         // console.log('new hero discovered', AUTHOR, name)
         index(AUTHOR) // Attempting to switch repo into CHAIN mode, create AUTHOR -> Chain<Hero> ptr manually
-        return { ...value, spawned: date, name, memo }
+        return { ...value, AUTHOR, spawned: date, name, memo }
       }
 
       case 'pve': {
@@ -308,7 +314,7 @@ class HeroMemory extends Memory {
  */
 class LiveMemory extends Memory {
   /** @typedef { location: number, x: number, y: number, says: string|undefined, date: number } LivePayload */
-  initialValue = { location: 0, x: 0, y: 0, says: null, date: -1 }
+  initialValue = { location: 0, x: 0, y: 0, says: null, date: -1, AUTHOR: null}
   idOf ({ CHAIN }) { return CHAIN }
 
   /** @type {ComputeFunction} */
@@ -578,7 +584,7 @@ class PvESession {
   }
 
   async explore (dungeonId) {
-    if (this.state != 'adventure') throw new Error('Cannot explore while busy')
+    if (this.state !== 'adventure') throw new Error('Cannot explore while busy')
     const connected = this.area.dungeons.some(d => d === dungeonId)
     if (!connected) throw new Error(`Dungeon ${dungeonId} does not exist in ${this.area.id}`)
     const dungeon = DUNGEONS[dungeonId]

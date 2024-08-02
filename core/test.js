@@ -196,15 +196,17 @@ test('PRNG', async t => {
   t.deepEqual(rng.outputs, b.outputs, 'Deterministic outputs')
 })
 
-test.skip('Live PvE store', async t => {
+test.only('Live PvE store', async t => {
   const kernel = await boot()
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
   await session.travelTo(A.crossroads)
   await session.travelTo(A.town)
   await session.updateLive(0.25, 0.7, 'Hello')
-  kernel.$player(h => console.log('Inventory', h.inventory))
+  await session.updateLive(0.25, 0.7, 'Is anyone here?')
+  // kernel.$player(h => console.log('Inventory', h.inventory))
   const worldState = await next(kernel.on_live(), 0)
+  await session.updateLive(0.25, 0.7, 'wtf?')
   console.log(worldState)
 })
 

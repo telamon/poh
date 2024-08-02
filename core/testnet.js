@@ -154,9 +154,9 @@ function agg (counts) {
 }
 
 async function main () {
-  const SWARM = false
-  const NUMBER = 200
-  const SPEED = 3
+  const SWARM = true
+  const NUMBER = 20
+  const SPEED = 5
 
   const peers = []
   for (let i = 0; i < NUMBER; i++) {
