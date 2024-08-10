@@ -447,6 +447,14 @@ DUNGEONS[0] = {
       ],
       description: 'You\'re ambushed by a bandit, he wiggles his eyebrows at you saying "Hand over your gear peacefully and i\'ll let you keep your pantaloons"'
     }
+    /*
+    {
+      type: 'npc',
+      name: 'Kryptonian Knight',
+      chance: 1,
+      talk: { type: 'dialogue', content: 'You there! I have a feeling you\'ve been up to no good.' }
+    }
+    */
   ]
 }
 

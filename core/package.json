@@ -14,7 +14,6 @@
     "lint": "standard --fix"
   },
   "dependencies": {
-    "browserify": "^17.0.0",
     "piconuro": "^1.0.1",
     "picostack": "../../picostack",
     "pure-random-number": "^3.2.1"
@@ -24,7 +23,6 @@
     "esbuild": "^0.23.0",
     "hyperswarm": "^4.8.1",
     "memory-level": "^1.0.0",
-    "msgpackr": "^1.10.2",
     "standard": "^17.1.0",
     "tape": "^5.8.1"
   }
