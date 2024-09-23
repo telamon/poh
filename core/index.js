@@ -1082,7 +1082,7 @@ function computeStats (character) {
       }
     }
   }
-  atk += pwr + Math.floor(agl * 0.6)
+  atk += pwr + Math.floor(agl * 0.6) // (pwr + Math.floor(Math.log(agl) * 2))
   def += agl + Math.floor(wis * 0.333)
   mag += wis + Math.floor((pwr + agl) * 0.2)
   return { pwr, agl, wis, atk, def, mag }
