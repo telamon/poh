@@ -4,12 +4,12 @@
   "version": "1.0.0",
   "description": "Pico Proof-of-Honor Kernel",
   "main": "index.js",
-  "files": {
+  "files": [
     "index.js",
     "binorg.js",
     "db.js",
     "player.js"
-  },
+  ],
   "author": "Tony Ivanov",
   "license": "AGPL-version-3",
   "bugs": {
