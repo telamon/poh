@@ -99,7 +99,7 @@ const TWOHAND = LEFT | RIGHT
 export const E = { NONE, LEFT, RIGHT, HEAD, BODY, FEET, TWOHAND }
 
 /** defineItem(itemId: number, name: string, price: number, capabilities: uint, description: string, props: any) */
-defineItem(1, 'Currency', 1, STACK, 'The stuff that gleams')
+defineItem(1, 'Gold', 1, STACK, 'The stuff that gleams') // placeholder-¤
 
 defConsumable(30, 'Herb', 100, 'A natural anti-septic with relaxing properties', fxHeal(6, 5), true)
 defConsumable(31, 'Ration', 2, 'Restores health, when out of combat', fxHeal(3))

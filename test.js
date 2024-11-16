@@ -205,7 +205,7 @@ test('Live PvE store', async t => {
   await session.updateLive(0.25, 0.7, 'Hello')
   await session.updateLive(0.25, 0.7, 'Is anyone here?')
   // kernel.$player(h => console.log('Inventory', h.inventory))
-  const worldState = await next(kernel.on_live(), 0)
+  const worldState = await next(kernel.on_live_events, 0)
   await session.updateLive(0.25, 0.7, 'wtf?')
   console.log(worldState)
 })
@@ -231,7 +231,7 @@ function compare (a, b, onlyDiff = false, depth = 0) {
   else if (a !== b) return `${a} != ${b}\n`
 }
 
-test.only('Z-order Curve 3D', async t => {
+test('Z-order Curve 3D', async t => {
   const vec3 = [12n, 15n, 256n]
   const n = encode64ZOC3(...vec3)
   t.deepEqual(decode64ZOC3(n), vec3)
