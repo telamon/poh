@@ -8,7 +8,44 @@ import { argv0 } from 'node:process'
 globalThis.crypto ||= crypto
 const DROPS = {}
 const ENCOUNTERS = {}
-const DEATHS = {}
+
+async function main () {
+  const SWARM = true
+  const NUMBER = 4
+  const SPEED = 5
+
+  const peers = []
+  for (let i = 0; i < NUMBER; i++) {
+    peers.push(
+      spawnBot(`ROB${i}:x${Math.ceil(Math.random() * 256).toString(16)}`, SWARM, SPEED)
+    )
+  }
+  let error
+  let stati
+  try {
+    stati = await Promise.all(peers)
+    console.log('exits', stati)
+    const sagg = { died: 0, sleep: 0 }
+    for (const exit of stati) sagg[exit]++
+    console.table(sagg)
+    console.log('Rate of survival: ', sagg.sleep / sagg.died)
+  } catch (err) {
+    error = err
+  }
+
+  console.log('Encounters')
+  console.table(agg(ENCOUNTERS))
+  console.log('Droprates')
+  console.table(agg(DROPS))
+  if (error) {
+    console.log('Aborted by error', error)
+    process.exit(1)
+  }
+  return stati
+}
+main()
+
+
 /**
  * @typedef {import('./index.js').Kernel} Kernel
  * @param {Kernel} kernel */
@@ -152,40 +189,3 @@ function agg (counts) {
   }
   return out
 }
-
-async function main () {
-  const SWARM = true
-  const NUMBER = 20
-  const SPEED = 5
-
-  const peers = []
-  for (let i = 0; i < NUMBER; i++) {
-    peers.push(
-      spawnBot(`ROB${i}:x${Math.ceil(Math.random() * 256).toString(16)}`, SWARM, SPEED)
-    )
-  }
-  let error
-  let stati
-  try {
-    stati = await Promise.all(peers)
-    console.log('exits', stati)
-    const sagg = { died: 0, sleep: 0 }
-    for (const exit of stati) sagg[exit]++
-    console.table(sagg)
-    console.log('Rate of survival: ', sagg.sleep / sagg.died)
-  } catch (err) {
-    error = err
-  }
-
-  console.log('Encounters')
-  console.table(agg(ENCOUNTERS))
-  console.log('Droprates')
-  console.table(agg(DROPS))
-  if (error) {
-    console.log('Aborted by error', error)
-    process.exit(1)
-  }
-  return stati
-}
-
-main()

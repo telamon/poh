@@ -1,11 +1,21 @@
 {
-  "name": "poh-kernel",
+  "name": "poh",
   "type": "module",
   "version": "1.0.0",
   "description": "Pico Proof-of-Honor Kernel",
   "main": "index.js",
+  "files": {
+    "index.js",
+    "binorg.js",
+    "db.js",
+    "player.js"
+  },
   "author": "Tony Ivanov",
   "license": "AGPL-version-3",
+  "bugs": {
+    "url": "https://github.com/telamohn/poh/issues"
+  },
+  "homepage": "https://github.com/telamohn/poh",
   "scripts": {
     "build": "esbuild --bundle index.js --outfile=../build/K.js --format=esm",
     "test": "node test.js",

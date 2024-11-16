@@ -109,7 +109,7 @@ defConsumable(84, 'Smokebomb', 40, 'When you have to, you have to', fxEscape(6, 
 
 // defineItem(5, '')
 // equipmentItem(7, 'The legendary sword de')
-defineItem(6, 'Hypercore',0 , STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
+defineItem(6, 'Hypercore', 0, STACK, 'It is said that at least two of them are consumed\nwhen enchanting an item with dimensional space-time properties.\nThe details were lost when the book of xorcery was burned, so nowadays they\'re just a gimmick.')
 
 // TODO: rewrite to defEq(id, name, price, slot, description, stats= {})
 defineItem(60, 'Sharp Stick', 0, SELL | DISCARD, 'You touched the pointy end and confirmed that it\'s quite sharp.', {
