@@ -176,6 +176,7 @@ export async function spawnBot (name = 'Robotron', swarm = false, speed = 1) {
   const kernel = await boot(swarm ? Hyperswarm : null)
   await kernel.createHero(name, 'I am robot')
   log('booted & created')
+
   const exit = await runSession(kernel, log, speed)
   // await kernel.stopSwarm()
   return exit

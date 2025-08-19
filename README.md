@@ -145,8 +145,8 @@ Prior attempt / version 0: [PoH-2020](https://git.sr.ht/~telamohn/poh)
 Clarification:
 
 - do whatever you wish with your UI / assets
-- please PR patches and changes to gameplay, so everyone can play the same game.
-- _no sublicensing_ (even if you're a cool dude). the license is the license.
+- please PR patches and changes to kernel, so everyone can play the same game.
+- _no sublicensing_. the license is the license.
 
 All wrongs reversed 🄯 2024 Tony Ivanov - decentlabs
 

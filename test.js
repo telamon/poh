@@ -132,7 +132,7 @@ test('Express gameplay as functions', async t => {
 
   await session.travelTo(1) // Goto crossroads
   console.log(session.area)
-  const encounter = await session.explore(0) // -> ++RNG, 1turn used, fuck... state.
+  const encounter = await session.explore(0)
   console.log('You encountered', encounter)
   console.log(JSON.stringify(encounter))
   let res
