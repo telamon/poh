@@ -2,7 +2,7 @@
   "name": "poh",
   "type": "module",
   "version": "1.0.0",
-  "description": "Pico Proof-of-Honor Kernel",
+  "description": "Proof-of-Honor Kernel",
   "main": "index.js",
   "files": [
     "index.js",
@@ -17,24 +17,29 @@
   },
   "homepage": "https://github.com/telamohn/poh",
   "scripts": {
-    "build": "esbuild --bundle index.js --outfile=../build/K.js --format=esm",
+    "build": "esbuild --bundle index.js --outfile=./build/K.js --format=esm",
     "test": "node test.js",
     "debug": "node inspect test.js",
     "types": "(rm *.ts || true) && tsc --skipLibCheck --noEmit --allowJs --checkJs --declaration --removeComments --lib es2022 --target es2022 --moduleResolution nodenext --module nodenext index.js",
     "lint": "standard --fix"
   },
   "dependencies": {
+    "autobase": "^7.18.0",
+    "bare-notcurses": "^0.0.1-1",
+    "cborg": "^4.2.13",
+    "corestore": "^7.4.5",
+    "hyperdb": "^4.16.1",
+    "hyperdispatch": "^1.4.1",
+    "hyperschema": "^1.14.0",
+    "paparam": "^1.8.5",
     "piconuro": "^1.0.1",
-    "picostack": "^2.0.2",
     "pure-random-number": "^3.2.1"
   },
   "devDependencies": {
-    "browserify": "^17.0.0",
+    "brittle": "^3.18.0",
     "debug": "^4.3.6",
     "esbuild": "^0.23.0",
     "hyperswarm": "^4.8.1",
-    "memory-level": "^1.0.0",
-    "standard": "^17.1.0",
-    "tape": "^5.8.1"
+    "standard": "^17.1.0"
   }
 }

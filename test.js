@@ -1,11 +1,10 @@
-import test from 'tape'
+import test from 'brittle'
 import crypto from 'node:crypto'
 import { boot, PRNG, clone } from './index.js'
 import { get, next } from 'piconuro'
 import { I, A } from './db.js'
-import { fromHex } from 'picofeed'
+import { fromHex, typeOf } from './lib/util.js'
 // import { JOB_PRIMITIVES } from './player.js'
-import { typeOf } from '@telamon/picostore'
 
 globalThis.crypto ||= crypto
 
@@ -240,64 +239,64 @@ test('Z-order Curve 3D', async t => {
 })
 
 // https://en.wikipedia.org/wiki/Z-order_curve
-function encode64ZOC3(x, y, z) {
+function encode64ZOC3 (x, y, z) {
   if (Array.isArray(x)) { z = x[2]; y = x[1]; x = x[0] }
-  x = spread3(x);
-  y = spread3(y);
-  z = spread3(z);
-  return (z << 2n) | (y << 1n) | x;
+  x = spread3(x)
+  y = spread3(y)
+  z = spread3(z)
+  return (z << 2n) | (y << 1n) | x
 }
 
 // Morton decode function
-function decode64ZOC3(code) {
+function decode64ZOC3 (code) {
   const x = compact3(code)
   const y = compact3(code >> 1n)
   const z = compact3(code >> 2n)
   return [x, y, z]
 }
 
-function spread3(n) {
+function spread3 (n) {
   n = BigInt(n) & 0x1fffffn // Mask input to 21 bits
   n = (n | (n << 32n)) & 0x1f00000000fffffn
   n = (n | (n << 16n)) & 0x1f0000ff0000ffn
-  n = (n | (n << 8n))  & 0x100f00f00f00f00fn
-  n = (n | (n << 4n))  & 0x10c30c30c30c30c3n
-  n = (n | (n << 2n))  & 0x1249249249249249n
+  n = (n | (n << 8n)) & 0x100f00f00f00f00fn
+  n = (n | (n << 4n)) & 0x10c30c30c30c30c3n
+  n = (n | (n << 2n)) & 0x1249249249249249n
   return n
 }
 
-function compact3(n) {
+function compact3 (n) {
   n = BigInt(n) & 0x1249249249249249n
-  n = (n ^ (n >> 2n))  & 0x10c30c30c30c30c3n
-  n = (n ^ (n >> 4n))  & 0x100f00f00f00f00fn
-  n = (n ^ (n >> 8n))  & 0x1f0000ff0000ffn
+  n = (n ^ (n >> 2n)) & 0x10c30c30c30c30c3n
+  n = (n ^ (n >> 4n)) & 0x100f00f00f00f00fn
+  n = (n ^ (n >> 8n)) & 0x1f0000ff0000ffn
   n = (n ^ (n >> 16n)) & 0x1f00000000fffffn
   n = (n ^ (n >> 32n)) & 0x1fffffn
   return n
 }
 
-function encodeVZOC3(x, y, z, bits) {
+function encodeVZOC3 (x, y, z, bits) {
   if (Array.isArray(x)) { bits = y; z = x[2]; y = x[1]; x = x[0] }
-  x = BigInt(x);
-  y = BigInt(y);
-  z = BigInt(z);
-  let o = 0n;
+  x = BigInt(x)
+  y = BigInt(y)
+  z = BigInt(z)
+  let o = 0n
   for (let i = 0n; i < bits; i++) {
-    let bitmask = 1n << i;
-    let xi = (x & bitmask) << (2n * i);
-    let yi = (y & bitmask) << (2n * i + 1n);
-    let zi = (z & bitmask) << (2n * i + 2n);
-    o |= xi | yi | zi;
+    const bitmask = 1n << i
+    const xi = (x & bitmask) << (2n * i)
+    const yi = (y & bitmask) << (2n * i + 1n)
+    const zi = (z & bitmask) << (2n * i + 2n)
+    o |= xi | yi | zi
   }
-  return o;
+  return o
 }
 
-function decodeVZOC3(code, bits) {
-  let x = 0n, y = 0n, z = 0n;
+function decodeVZOC3 (code, bits) {
+  let x = 0n; let y = 0n; let z = 0n
   for (let i = 0n; i < bits; i++) {
-    x |= ((code >> (3n * i)) & 1n) << i;
-    y |= ((code >> (3n * i + 1n)) & 1n) << i;
-    z |= ((code >> (3n * i + 2n)) & 1n) << i;
+    x |= ((code >> (3n * i)) & 1n) << i
+    y |= ((code >> (3n * i + 1n)) & 1n) << i
+    z |= ((code >> (3n * i + 2n)) & 1n) << i
   }
-  return [ x, y, z ];
+  return [x, y, z]
 }

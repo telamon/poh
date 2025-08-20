@@ -45,7 +45,6 @@ async function main () {
 }
 main()
 
-
 /**
  * @typedef {import('./index.js').Kernel} Kernel
  * @param {Kernel} kernel */
