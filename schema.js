@@ -12,7 +12,8 @@ template.register({
   name: 'player',
   fields: [
     { name: 'key', type: 'string', required: true },
-    { name: 'body', type: 'buffer', required: true }
+    { name: 'name', type: 'string', required: true },
+    { name: 'memo', type: 'string', required: false }
   ]
 })
 

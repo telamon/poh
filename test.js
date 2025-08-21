@@ -1,15 +1,27 @@
 import test from 'brittle'
 import crypto from 'node:crypto'
-import { boot, PRNG, clone } from './index.js'
+// import { boot, PRNG, clone } from './index.js'
 import { get, next } from 'piconuro'
 import { I, A } from './db.js'
 import { fromHex, typeOf } from './lib/util.js'
+// ----
+import FatKernel from './lib/core.js'
+import tmp from 'test-tmp'
+import Corestore from 'corestore'
+
 // import { JOB_PRIMITIVES } from './player.js'
 
 globalThis.crypto ||= crypto
 
-test('Kernel Boot & Create Character', async t => {
-  const kernel = await boot()
+async function bootFat (t) {
+  const dir = await tmp(t)
+  const core = new FatKernel(new Corestore(dir))
+  await core.boot()
+  return core;
+}
+
+test.solo('Kernel Boot & Create Character', async t => {
+  const kernel = await bootFat()
   console.log('k.on_player', get(kernel.on_player))
   // Create hero
   const block = await kernel.createHero('Bertil VIII', 'A formidable tester without regrets')
