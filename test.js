@@ -17,7 +17,7 @@ async function bootFat (t) {
   const dir = await tmp(t)
   const core = new FatKernel(new Corestore(dir))
   await core.boot()
-  return core;
+  return core
 }
 
 test.solo('Kernel Boot & Create Character', async t => {
