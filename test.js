@@ -5,7 +5,7 @@ import { get, next } from 'piconuro'
 import { I, A } from './db.js'
 import { typeOf, clone, toHex, cmp } from './lib/util.js'
 
-import FATKernel from './lib/core.js'
+import FATKernel from './index.js'
 import tmp from 'test-tmp'
 import Corestore from 'corestore'
 import { toU8 } from 'pure-random-number'
@@ -59,7 +59,7 @@ test('Dissapearing item bug', async t => {
   t.is(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'dagger is still there')
 })
 
-test.skip('Levelsystem', async t => {
+test('Levelsystem', async t => {
   const kernel = await boot(t)
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
@@ -93,7 +93,7 @@ test.skip('Levelsystem', async t => {
   }
   const dingEvent = next(kernel.$messages, 1)
   const diff = await session.choosePath('M')
-  t.alike(diff, { pwr: 1, agl: 0, wis: 0, skills_added: [], skills_consumed: [] }, 'hero level up')
+  t.alike(diff, { lvl: 1, pwr: 1, agl: 0, wis: 0, skills_added: [], skills_consumed: [] }, 'hero level up')
   h = get(kernel.$player)
   t.is(h.jobPoints, 0, 'all points spent')
   t.alike(session.hero.career, ['M'], 'Walking the path of the monk')

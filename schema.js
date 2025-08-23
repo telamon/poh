@@ -22,6 +22,7 @@ template.register({ // database + block
     { name: 'kills', type: 'uint', required: true },
     { name: 'escapes', type: 'uint', required: true },
     { name: 'deaths', type: 'uint', required: true }, // life - deaths < 0 == perma death
+    // { name: 'dead', type: 'boolean', required: true },
     { name: 'hp', type: 'int', required: true },
     { name: 'experience', type: 'uint', required: true }, // Total Experience
 
@@ -87,7 +88,8 @@ template.register({ // block only
     { name: 'arg', type: 'string', required: false },
 
     // action: use
-    { name: 'item', type: 'string', required: false }
+    { name: 'item', type: 'string', required: false },
+    { name: 'id', type: 'int|string', required: false } // <-- problem
   ]
 })
 */
