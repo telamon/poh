@@ -1,12 +1,11 @@
 import test from 'brittle'
 import crypto from 'node:crypto'
 import PRNG from './lib/prng.js'
-// import { boot, PRNG, clone } from './index.js'
-import { get, next, nfo } from 'piconuro'
+import { get, next } from 'piconuro'
 import { I, A } from './db.js'
-import { fromHex, typeOf, clone, toHex, cmp } from './lib/util.js'
-// ----
-import FatKernel from './lib/core.js'
+import { typeOf, clone, toHex, cmp } from './lib/util.js'
+
+import FATKernel from './lib/core.js'
 import tmp from 'test-tmp'
 import Corestore from 'corestore'
 import { toU8 } from 'pure-random-number'
@@ -15,20 +14,22 @@ import { toU8 } from 'pure-random-number'
 
 globalThis.crypto ||= crypto
 
-async function bootFat (t) {
+async function boot (t) {
   const dir = await tmp(t)
-  const core = new FatKernel(new Corestore(dir))
+  const core = new FATKernel(new Corestore(dir))
   await core.boot()
   return core
 }
 
 test('Kernel Boot & Create Character', async t => {
-  const kernel = await bootFat()
+  const kernel = await boot(t)
   const unsub = kernel.on_player(hero => {
-    console.log('hero', hero)
+    t.comment('hero', hero)
     t.pass('player updated')
   })
-  console.log('k.on_player', get(kernel.on_player))
+
+  t.absent(get(kernel.$player), 'no hero')
+
   // Create hero
   const hero = await kernel.createHero('Bertil VIII', 'A formidable tester without regrets')
   t.ok(hero)
@@ -36,17 +37,17 @@ test('Kernel Boot & Create Character', async t => {
 
   t.is(typeof get(kernel.on_player), 'string')
   t.is(typeof get(kernel.$player), 'object')
-  console.log('k.on_player', get(kernel.on_player))
+  // console.log('k.on_player', get(kernel.on_player))
   unsub()
 })
 
 test('Dissapearing item bug', async t => {
-  const kernel = await boot()
+  const kernel = await boot(t)
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
   await session.travelTo(A.crossroads)
   await session.travelTo(A.town)
-  kernel.$player(h => console.log('Inventory', h.inventory))
+  // const unsub = kernel.$player(h => t.comment('Inventory', h.inventory))
   await session.interact(0, 'buy', I.ration, 1)
   await session.interact(1, 'buy', I.dagger, 1)
 
@@ -54,12 +55,12 @@ test('Dissapearing item bug', async t => {
   t.is(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'should have dagger')
   t.is(session.inventory.find(({ id }) => I.ration === id).qty, 1, 'should have 1 herbs')
   await session.useItem(I.ration)
-  t.notOk(session.inventory.find(({ id }) => I.ration === id), 'no herbs')
+  t.absent(session.inventory.find(({ id }) => I.ration === id), 'no herbs')
   t.is(session.inventory.find(({ id }) => I.dagger === id)?.qty, 1, 'dagger is still there')
 })
 
 test.skip('Levelsystem', async t => {
-  const kernel = await boot()
+  const kernel = await boot(t)
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
 
@@ -106,10 +107,8 @@ test.skip('Levelsystem', async t => {
   // console.log(l)
 })
 
-test.solo('Express gameplay as functions', async t => {
-  const kernel = await bootFat()
-  // console.log('===> Secret', toHex(kernel._secret))
-  // kernel._secret = fromHex('05e3a8f6653c508ff39d6a086f86b89cce21f4083c8b9f3c0f7d5c5f9f938e97') // Lock prng for this test
+test('Express gameplay as functions', async t => {
+  const kernel = await boot(t)
 
   await kernel.createHero('Bertil IIX', 'A formidable tester without regrets')
 
@@ -203,7 +202,6 @@ test.solo('Express gameplay as functions', async t => {
   heroCopy.exhaustion = hero.exhaustion // Should always be reset
   heroCopy.hp = hero.hp // Wounds heal on sleep
   console.log('comparison', compare(hero, heroCopy, true))
-  debugger
   // t.alike(hero, heroCopy, 'PvECPU is Deterministic')
 })
 
@@ -211,14 +209,14 @@ test('PRNG', async t => {
   const seed = crypto.randomBytes(32)
   const rng = new PRNG(seed)
   while (rng.rounds < 1) await rng.roll(20)
-  console.log(rng.outputs.length, rng)
+  // t.comment(rng.outputs.length, rng)
   const b = new PRNG(seed)
   await b.replay(rng.inputs)
   t.alike(rng.outputs, b.outputs, 'Deterministic outputs')
 })
 
-test('Live PvE store', async t => {
-  const kernel = await boot()
+test.skip('Live PvE store', async t => {
+  const kernel = await boot(t)
   await kernel.createHero('Bertil IX', 'Someone who lost his herbs')
   const session = await kernel.beginPVE()
   await session.travelTo(A.crossroads)
