@@ -4,15 +4,18 @@ import { boot } from './index.js'
 import { I, A, ITEMS, E } from './db.js'
 import { settle, until } from 'piconuro'
 import { JOB_PRIMITIVES } from './player.js'
-import { argv0 } from 'node:process'
+import tmp from 'test-tmp'
+import Corestore from 'corestore'
+
 globalThis.crypto ||= crypto
+
 const DROPS = {}
 const ENCOUNTERS = {}
 
 async function main () {
-  const SWARM = true
+  const SWARM = false
   const NUMBER = 4
-  const SPEED = 5
+  const SPEED = 0.01
 
   const peers = []
   for (let i = 0; i < NUMBER; i++) {
@@ -41,6 +44,7 @@ async function main () {
     console.log('Aborted by error', error)
     process.exit(1)
   }
+
   return stati
 }
 main()
@@ -107,7 +111,7 @@ export async function runSession (kernel, log, speed = 1) {
         }
 
         if (exhaustion > 900) {
-          const [diff] = await kernel.commitPVE()
+          const diff = await kernel.commitPVE()
           const eq = Object.values(equipment).map(i => i && session._getItemSpec(i.id).name).join(' | ')
           log('😴 Zzz', { ...diff, eq })
           return 'sleep'
@@ -169,15 +173,51 @@ export async function runSession (kernel, log, speed = 1) {
     await sleep(500)
   }
 }
+
+let pBot = null
+
 export async function spawnBot (name = 'Robotron', swarm = false, speed = 1) {
   const log = (...args) => console.info(name, ...args)
   log('booting')
-  const kernel = await boot(swarm ? Hyperswarm : null)
+  const [path, rmdir] = await tmpDir()
+
+  const kernel = await boot(new Corestore(path), swarm ? Hyperswarm : null)
   await kernel.createHero(name, 'I am robot')
+
+  let disconnect
+
+  if (swarm) {
+    disconnect = await kernel.beginSwarm()
+  } else {
+    // use local pipes
+    if (pBot) {
+      const s0 = kernel.replicate(true)
+      const s1 = pBot.replicate(false)
+      s0.pipe(s1).pipe(s0)
+
+      disconnect = async () => {
+        s0.destroy()
+        s1.destroy()
+      }
+    } else {
+      disconnect = async () => {} // no-op
+    }
+
+    pBot = kernel
+  }
+
+  // const unswarm = await kernel.beginSwarm(Hyperswarm)
+
   log('booted & created')
 
   const exit = await runSession(kernel, log, speed)
-  // await kernel.stopSwarm()
+
+  const players = await kernel.listPlayers()
+  console.log('recorded players', players.length)
+
+  await rmdir()
+  await disconnect()
+
   return exit
 }
 
@@ -188,4 +228,18 @@ function agg (counts) {
     out[key] = ((counts[key] / total) * 100).toFixed(2) + '%'
   }
   return out
+}
+
+async function tmpDir () {
+  let _rmdir
+  let removed = false
+  const path = await tmp({ teardown: cb => { _rmdir = cb } })
+
+  async function rmdir () {
+    if (removed) return
+    removed = true
+    await _rmdir()
+  }
+
+  return [path, rmdir]
 }

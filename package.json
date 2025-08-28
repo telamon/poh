@@ -18,8 +18,8 @@
   "homepage": "https://github.com/telamohn/poh",
   "scripts": {
     "build": "esbuild --bundle index.js --outfile=./build/K.js --format=esm",
-    "test": "node test.js",
-    "debug": "node inspect test.js",
+    "test": "node test/index.js",
+    "debug": "node inspect test/index.js",
     "types": "(rm *.ts || true) && tsc --skipLibCheck --noEmit --allowJs --checkJs --declaration --removeComments --lib es2022 --target es2022 --moduleResolution nodenext --module nodenext index.js",
     "lint": "standard --fix"
   },
@@ -36,6 +36,7 @@
     "pure-random-number": "^3.2.1"
   },
   "devDependencies": {
+    "autobase-test-helpers": "^3.1.0",
     "brittle": "^3.18.0",
     "debug": "^4.3.6",
     "esbuild": "^0.23.0",

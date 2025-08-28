@@ -1,14 +1,13 @@
 import test from 'brittle'
 import crypto from 'node:crypto'
-import PRNG from './lib/prng.js'
+import PRNG from '../lib/prng.js'
 import { get, next } from 'piconuro'
-import { I, A } from './db.js'
-import { typeOf, clone, toHex, cmp } from './lib/util.js'
+import { I, A } from '../db.js'
+import { typeOf, clone, toHex, cmp, toU8 } from '../lib/util.js'
 
-import FATKernel from './index.js'
+import FATKernel from '../index.js'
 import tmp from 'test-tmp'
 import Corestore from 'corestore'
-import { toU8 } from 'pure-random-number'
 
 // import { JOB_PRIMITIVES } from './player.js'
 

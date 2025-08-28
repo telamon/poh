@@ -22,7 +22,7 @@ template.register({ // database + block
     { name: 'kills', type: 'uint', required: true },
     { name: 'escapes', type: 'uint', required: true },
     { name: 'deaths', type: 'uint', required: true }, // life - deaths < 0 == perma death
-    // { name: 'dead', type: 'boolean', required: true },
+    { name: 'dead', type: 'bool', required: false },
     { name: 'hp', type: 'int', required: true },
     { name: 'experience', type: 'uint', required: true }, // Total Experience
 
@@ -62,7 +62,12 @@ template.register({ // block only
   fields: [
     { name: 'date', type: 'uint', required: true },
     // { name: 'actions', type: `@${NAMESPACE}/pve-action`, array: true, required: true }
-    { name: 'actions', type: 'buffer', required: true } // TODO: torch hyperschema
+    { name: 'actions', type: 'buffer', required: true }, // TODO: torch hyperschema
+
+    // DO NOT USE! ONLY FOR SANITYCHECK
+    { name: 'seed', type: 'buffer', require: true },
+    { name: 'author', type: 'buffer', require: true },
+    { name: 'seq', type: 'uint', require: true }
   ]
 })
 
