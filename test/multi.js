@@ -75,6 +75,7 @@ async function replicateAndSync (...cores) {
 
 test('creator world key bootstraps joining peer', async t => {
   const creator = await boot(t)
+  const createdWorld = await creator.createWorld()
   await creator.createHero('creator', 'root')
 
   const worldKey = creator.base.key
@@ -88,6 +89,7 @@ test('creator world key bootstraps joining peer', async t => {
 
   await replicateAndSync(creator, peer)
 
+  t.alike(await peer.readWorld(), createdWorld, 'peer sees creator world metadata')
   t.ok(await peer.readPlayer(creator.pk), 'peer sees creator hero')
 })
 

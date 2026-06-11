@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 1,
   "schema": [
     {
       "name": "player",
@@ -190,6 +190,38 @@
       ]
     },
     {
+      "name": "world_genesis",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "version",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "ruleset",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "admission",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "topic",
+          "required": true,
+          "type": "buffer",
+          "version": 1
+        }
+      ]
+    },
+    {
       "name": "pve-session",
       "namespace": "honor",
       "compact": false,
@@ -237,13 +269,13 @@
           "name": "date",
           "required": true,
           "type": "uint",
-          "version": 2
+          "version": 1
         },
         {
           "name": "actions",
           "required": true,
           "type": "buffer",
-          "version": 2
+          "version": 1
         }
       ]
     }

@@ -11,8 +11,9 @@ class Router {
     this._handler0 = null
     this._handler1 = null
     this._handler2 = null
+    this._handler3 = null
 
-    this._missing = 3
+    this._missing = 4
   }
 
   add (name, handler) {
@@ -26,6 +27,9 @@ class Router {
       case '@honor/pve-session-v2':
         this._handler2 = handler
         break
+      case '@honor/world/genesis':
+        this._handler3 = handler
+        break
       default:
         throw DispatchError.NONEXISTENT_ROUTE(name)
     }
@@ -36,6 +40,7 @@ class Router {
     assert(this._handler0 !== null, 'Missing handler for "@honor/spawn-player"')
     assert(this._handler1 !== null, 'Missing handler for "@honor/pve-session"')
     assert(this._handler2 !== null, 'Missing handler for "@honor/pve-session-v2"')
+    assert(this._handler3 !== null, 'Missing handler for "@honor/world/genesis"')
   }
 
   async dispatch (message, context) {
@@ -54,6 +59,8 @@ class Router {
         return this._handler1(op.value, context)
       case 2:
         return this._handler2(op.value, context)
+      case 3:
+        return this._handler3(op.value, context)
       default:
         throw DispatchError.HANDLER_NOT_FOUND_BY_ID(op.id)
     }
@@ -105,6 +112,12 @@ const route2 = {
   enc: getEncoding('@honor/pve-session-v2')
 }
 
+const route3 = {
+  name: '@honor/world/genesis',
+  id: 3,
+  enc: getEncoding('@honor/world_genesis')
+}
+
 function getRouteByName (name) {
   switch (name) {
     case '@honor/spawn-player':
@@ -113,6 +126,8 @@ function getRouteByName (name) {
       return route1
     case '@honor/pve-session-v2':
       return route2
+    case '@honor/world/genesis':
+      return route3
     default:
       throw DispatchError.ROUTE_NOT_FOUND_BY_NAME(name)
   }
@@ -126,6 +141,8 @@ function getRouteById (id) {
       return route1
     case 2:
       return route2
+    case 3:
+      return route3
     default:
       throw DispatchError.HANDLER_NOT_FOUND_BY_ID(id)
   }

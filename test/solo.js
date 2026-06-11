@@ -80,6 +80,17 @@ test('World key derives world topic', async t => {
   t.ok(!cmp(kernel.worldTopic, otherTopic), 'different world keys derive different topics')
 })
 
+test('World genesis materializes metadata', async t => {
+  const kernel = await boot(t)
+  const world = await kernel.createWorld()
+
+  t.is(world.version, 1)
+  t.is(world.ruleset, 'poh:v1')
+  t.is(world.admission, 'open')
+  t.alike(world.topic, kernel.worldTopic)
+  t.ok(cmp(world.creator, kernel.writerKey), 'world creator is writer key')
+})
+
 test('Adventure v2 payload only contains player intent', async t => {
   const message = decode(encode('@honor/pve-session-v2', {
     date: 1,

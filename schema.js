@@ -57,6 +57,16 @@ template.register({
 })
 
 template.register({ // block only
+  name: 'world_genesis',
+  fields: [
+    { name: 'version', type: 'uint', required: true },
+    { name: 'ruleset', type: 'string', required: true },
+    { name: 'admission', type: 'string', required: true },
+    { name: 'topic', type: 'buffer', required: true }
+  ]
+})
+
+template.register({ // block only
   name: 'pve-session',
   fields: [
     { name: 'date', type: 'uint', required: true },
@@ -116,5 +126,6 @@ const namespace = hyperdispatch.namespace(NAMESPACE)
 namespace.register({ name: 'spawn-player', requestType: '@honor/player' })
 namespace.register({ name: 'pve-session', requestType: '@honor/pve-session' })
 namespace.register({ name: 'pve-session-v2', requestType: '@honor/pve-session-v2' })
+namespace.register({ name: 'world/genesis', requestType: '@honor/world_genesis' })
 
 Hyperdispatch.toDisk(hyperdispatch)

@@ -25,9 +25,9 @@ Goal: port the Proof-of-Honor persistence/contract layer to Autobee while preser
 
 - `world/genesis`: creates the world, ruleset identity, and admission policy.
 - `player/spawn`: creates a hero for the committing writer and, in open admission mode, admits that writer.
-- `adventure/day`: commits one validated adventure-day transcript.
-- `writer/invite`: future admission record for gated worlds.
-- `writer/revoke`: future moderation/admin control, if the world rules allow it.
+- `pve/commit`: commits one validated daily PvE transcript.
+- `world/invite`: future admission record for gated worlds.
+- `world/revoke`: future moderation/admin control, if the world rules allow it.
 
 ## Validation Invariants
 

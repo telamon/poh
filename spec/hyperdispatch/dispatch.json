@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "offset": 0,
   "schema": [
     {
@@ -19,6 +19,12 @@
       "name": "@honor/pve-session-v2",
       "requestType": "@honor/pve-session-v2",
       "version": 2
+    },
+    {
+      "id": 3,
+      "name": "@honor/world/genesis",
+      "requestType": "@honor/world_genesis",
+      "version": 3
     }
   ]
 }
