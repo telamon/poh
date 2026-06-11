@@ -7,7 +7,7 @@ that you can send your action-blocks to a buddy and
 a perfect copy of your character appears in their world.
 
 - it's written ontop of [pico](https://github.com/telamon/pico-stack)
-- can use [hyperswarm](https://github.com/holepunchto/hyperswarm) for multiplay
+- exposes its store so replication can be driven by an external transport layer
 - is totally missing an UI - _Please PR/or Issue if you build one!_
 
 [![asciicast](https://asciinema.org/a/4t8Zy3CScVMR56qmvrVNz2F46.svg)](https://asciinema.org/a/4t8Zy3CScVMR56qmvrVNz2F46)
@@ -111,8 +111,7 @@ const [diff] = await kernel.commitPVE()
 console.log('gold, xp and stats gained', diff)
 ```
 
-note: `k.commitPVE()` broadcasts your character to the network\
-if kernel was booted with swarm `K = await boot(Hyperswarm)`
+note: `k.commitPVE()` appends your character update locally. Replication is driven outside the kernel through its store.
 
 Ok that's pretty much the gist of it; \
 But always keep an eye on:
@@ -149,4 +148,3 @@ Clarification:
 - _no sublicensing_. the license is the license.
 
 All wrongs reversed 🄯 2024 Tony Ivanov - decentlabs
-

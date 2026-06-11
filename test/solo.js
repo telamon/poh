@@ -1,26 +1,29 @@
 import test from 'brittle'
 import crypto from 'node:crypto'
 import PRNG from '../lib/prng.js'
-import { get, next } from 'piconuro'
+import N from 'piconuro'
 import { I, A } from '../db.js'
 import { typeOf, clone, toHex, cmp, toU8 } from '../lib/util.js'
+import { encode, decode } from '../spec/hyperdispatch/index.js'
 
-import FATKernel from '../index.js'
+import Core, { boot as bootCore, deriveWorldTopic } from '../index.js'
 import tmp from 'test-tmp'
 import Corestore from 'corestore'
 
 // import { JOB_PRIMITIVES } from './player.js'
 
+const { get, next } = N
+
 globalThis.crypto ||= crypto
 
 async function boot (t) {
   const dir = await tmp(t)
-  const core = new FATKernel(new Corestore(dir))
+  const core = new Core(new Corestore(dir))
   await core.boot()
   return core
 }
 
-test('Kernel Boot & Create Character', async t => {
+test('Core Boot & Create Character', async t => {
   const kernel = await boot(t)
   const unsub = kernel.on_player(hero => {
     t.comment('hero', hero)
@@ -38,6 +41,55 @@ test('Kernel Boot & Create Character', async t => {
   t.is(typeof get(kernel.$player), 'object')
   // console.log('k.on_player', get(kernel.on_player))
   unsub()
+})
+
+test('Spawn author must match writer key', async t => {
+  const kernel = await boot(t)
+
+  await kernel.base.append(encode('@honor/spawn-player', {
+    key: Buffer.alloc(32, 1),
+    name: 'spoof',
+    memo: '',
+    spawned: Date.now(),
+    seen: 0,
+    adventures: 0,
+    state: 'idle',
+    location: 0,
+    kills: 0,
+    escapes: 0,
+    deaths: 0,
+    dead: false,
+    hp: 20,
+    experience: 0,
+    career: [],
+    inventory: []
+  }), { optimistic: true })
+
+  t.absent(await kernel.readPlayer(Buffer.alloc(32, 1)), 'spoofed hero was not materialized')
+})
+
+test('World key derives world topic', async t => {
+  const dir = await tmp(t)
+  const worldKey = 'poh:test/world'
+  const worldTopic = await deriveWorldTopic(worldKey)
+  const kernel = await bootCore(new Corestore(dir), { worldKey })
+
+  t.alike(kernel.worldTopic, worldTopic, 'boot derives topic from world key')
+
+  const otherTopic = await deriveWorldTopic('poh:test/other-world')
+  t.ok(!cmp(kernel.worldTopic, otherTopic), 'different world keys derive different topics')
+})
+
+test('Adventure v2 payload only contains player intent', async t => {
+  const message = decode(encode('@honor/pve-session-v2', {
+    date: 1,
+    actions: Buffer.alloc(0)
+  }))
+
+  t.is(message.name, '@honor/pve-session-v2')
+  t.absent(message.value.seed)
+  t.absent(message.value.author)
+  t.absent(message.value.seq)
 })
 
 test('Dissapearing item bug', async t => {
@@ -200,8 +252,8 @@ test('Express gameplay as functions', async t => {
   heroCopy.state = 'idle' // sleeping
   heroCopy.exhaustion = hero.exhaustion // Should always be reset
   heroCopy.hp = hero.hp // Wounds heal on sleep
-  console.log('comparison', compare(hero, heroCopy, true))
-  // t.alike(hero, heroCopy, 'PvECPU is Deterministic')
+  t.absent(compare(hero, heroCopy, true), 'PvECPU has no diff')
+  t.alike(hero, heroCopy, 'PvECPU is Deterministic')
 })
 
 test('PRNG', async t => {

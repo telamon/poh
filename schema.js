@@ -1,5 +1,4 @@
 import Hyperschema from 'hyperschema'
-import HyperdbBuilder from 'hyperdb/builder'
 import Hyperdispatch from 'hyperdispatch'
 
 const NAMESPACE = 'honor'
@@ -65,9 +64,17 @@ template.register({ // block only
     { name: 'actions', type: 'buffer', required: true }, // TODO: torch hyperschema
 
     // DO NOT USE! ONLY FOR SANITYCHECK
-    { name: 'seed', type: 'buffer', require: true },
-    { name: 'author', type: 'buffer', require: true },
-    { name: 'seq', type: 'uint', require: true }
+    { name: 'seed', type: 'buffer', required: true },
+    { name: 'author', type: 'buffer', required: true },
+    { name: 'seq', type: 'uint', required: true }
+  ]
+})
+
+template.register({ // block only
+  name: 'pve-session-v2',
+  fields: [
+    { name: 'date', type: 'uint', required: true },
+    { name: 'actions', type: 'buffer', required: true } // TODO: torch hyperschema
   ]
 })
 
@@ -101,18 +108,6 @@ template.register({ // block only
 
 Hyperschema.toDisk(poh)
 
-// Database Collections
-const dbTemplate = HyperdbBuilder.from('./spec/schema', './spec/db')
-const blobs = dbTemplate.namespace(NAMESPACE)
-
-blobs.collections.register({
-  name: 'players',
-  schema: '@honor/player',
-  key: ['key']
-})
-
-HyperdbBuilder.toDisk(dbTemplate)
-
 // Actions
 
 const hyperdispatch = Hyperdispatch.from('./spec/schema', './spec/hyperdispatch')
@@ -120,5 +115,6 @@ const namespace = hyperdispatch.namespace(NAMESPACE)
 
 namespace.register({ name: 'spawn-player', requestType: '@honor/player' })
 namespace.register({ name: 'pve-session', requestType: '@honor/pve-session' })
+namespace.register({ name: 'pve-session-v2', requestType: '@honor/pve-session-v2' })
 
 Hyperdispatch.toDisk(hyperdispatch)

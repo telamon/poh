@@ -1,0 +1,251 @@
+{
+  "version": 2,
+  "schema": [
+    {
+      "name": "player",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "key",
+          "required": true,
+          "type": "buffer",
+          "version": 1
+        },
+        {
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "memo",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "spawned",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "seen",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "adventures",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "state",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "location",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "kills",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "escapes",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "deaths",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "dead",
+          "required": false,
+          "type": "bool",
+          "version": 1
+        },
+        {
+          "name": "hp",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "experience",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "career",
+          "required": true,
+          "array": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "inventory",
+          "required": true,
+          "array": true,
+          "type": "@honor/item",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "item",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": 2,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "qty",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "uid",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "equipped",
+          "required": false,
+          "type": "bool",
+          "version": 1
+        },
+        {
+          "name": "stats",
+          "required": false,
+          "type": "@honor/item_stats",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "item_stats",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "pwr",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "agl",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "wis",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "atk",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "def",
+          "required": true,
+          "type": "int",
+          "version": 1
+        },
+        {
+          "name": "mag",
+          "required": true,
+          "type": "int",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "pve-session",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "date",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "actions",
+          "required": true,
+          "type": "buffer",
+          "version": 1
+        },
+        {
+          "name": "seed",
+          "required": true,
+          "type": "buffer",
+          "version": 1
+        },
+        {
+          "name": "author",
+          "required": true,
+          "type": "buffer",
+          "version": 1
+        },
+        {
+          "name": "seq",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "pve-session-v2",
+      "namespace": "honor",
+      "compact": false,
+      "flagsPosition": -1,
+      "fields": [
+        {
+          "name": "date",
+          "required": true,
+          "type": "uint",
+          "version": 2
+        },
+        {
+          "name": "actions",
+          "required": true,
+          "type": "buffer",
+          "version": 2
+        }
+      ]
+    }
+  ]
+}

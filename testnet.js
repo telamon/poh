@@ -1,11 +1,12 @@
-import Hyperswarm from 'hyperswarm'
 import crypto from 'node:crypto'
 import { boot } from './index.js'
 import { I, A, ITEMS, E } from './db.js'
-import { settle, until } from 'piconuro'
+import N from 'piconuro'
 import { JOB_PRIMITIVES } from './player.js'
 import tmp from 'test-tmp'
 import Corestore from 'corestore'
+
+const { settle, until } = N
 
 globalThis.crypto ||= crypto
 
@@ -50,8 +51,8 @@ async function main () {
 main()
 
 /**
- * @typedef {import('./index.js').Kernel} Kernel
- * @param {Kernel} kernel */
+ * @typedef {import('./index.js').default} Core
+ * @param {Core} kernel */
 export async function runSession (kernel, log, speed = 1) {
   const session = await kernel.beginPVE()
   await session.travelTo(A.crossroads)
@@ -176,37 +177,34 @@ export async function runSession (kernel, log, speed = 1) {
 
 let pBot = null
 
-export async function spawnBot (name = 'Robotron', swarm = false, speed = 1) {
+export async function spawnBot (name = 'Robotron', connect = false, speed = 1) {
   const log = (...args) => console.info(name, ...args)
   log('booting')
   const [path, rmdir] = await tmpDir()
+  const opts = pBot
+    ? { bootstrap: pBot.base.key, worldTopic: pBot.worldTopic }
+    : {}
 
-  const kernel = await boot(new Corestore(path), swarm ? Hyperswarm : null)
+  const kernel = await boot(new Corestore(path), opts)
   await kernel.createHero(name, 'I am robot')
 
   let disconnect
 
-  if (swarm) {
-    disconnect = await kernel.beginSwarm()
-  } else {
-    // use local pipes
-    if (pBot) {
-      const s0 = kernel.replicate(true)
-      const s1 = pBot.replicate(false)
-      s0.pipe(s1).pipe(s0)
+  if (connect && pBot) {
+    const s0 = kernel.store.replicate(true)
+    const s1 = pBot.store.replicate(false)
+    s0.pipe(s1).pipe(s0)
+    await pBot.addRemote(kernel.pk)
 
-      disconnect = async () => {
-        s0.destroy()
-        s1.destroy()
-      }
-    } else {
-      disconnect = async () => {} // no-op
+    disconnect = async () => {
+      s0.destroy()
+      s1.destroy()
     }
-
-    pBot = kernel
+  } else {
+    disconnect = async () => {} // no-op
   }
 
-  // const unswarm = await kernel.beginSwarm(Hyperswarm)
+  pBot = kernel
 
   log('booted & created')
 

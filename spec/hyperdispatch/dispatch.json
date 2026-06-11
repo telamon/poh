@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "offset": 0,
+  "schema": [
+    {
+      "id": 0,
+      "name": "@honor/spawn-player",
+      "requestType": "@honor/player",
+      "version": 1
+    },
+    {
+      "id": 1,
+      "name": "@honor/pve-session",
+      "requestType": "@honor/pve-session",
+      "version": 1
+    },
+    {
+      "id": 2,
+      "name": "@honor/pve-session-v2",
+      "requestType": "@honor/pve-session-v2",
+      "version": 2
+    }
+  ]
+}
